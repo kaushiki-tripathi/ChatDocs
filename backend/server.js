@@ -8,6 +8,7 @@ const connectDB = require('./config/db')
 const passport = require('./config/passport')
 const authRoutes = require('./routes/authRoutes')
 const documentRoutes = require('./routes/documentRoutes')
+const chatRoutes = require('./routes/chatRoutes')
 
 connectDB()
 
@@ -31,6 +32,7 @@ app.use(passport.session())
 
 app.use('/api/auth', authRoutes)
 app.use('/api/documents', documentRoutes)
+app.use('/api/chat',chatRoutes)
 
 app.get('/', (req, res) => {
   res.json({ message: 'ChatDocs Backend is Running!' })

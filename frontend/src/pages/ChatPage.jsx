@@ -1,21 +1,19 @@
 import { useState, useEffect } from "react";
+import toast from "react-hot-toast";
 import Sidebar from "../components/chat/Sidebar";
 import ChatArea from "../components/chat/ChatArea";
 import ChatInput from "../components/chat/ChatInput";
+import HistoryView from "../components/chat/HistoryView";
 import API from "../lib/api";
 import "../styles/chat.css";
-import HistoryView from "../components/chat/HistoryView";
 
 /**
- * Generate dummy AI response
- * This will be replaced with real RAG response later
+ * Dummy AI response (replaced with real RAG later)
  */
-const getDummyResponse = (question, docName) => {
-  return {
-    content: `Based on "${docName}", here is what I found regarding your question: "${question}"\n\nThis is a placeholder response. The actual AI-powered answer will appear here once the RAG pipeline is connected. The response will be generated from the content of your uploaded document, ensuring accurate and relevant answers.`,
-    sources: ["Page 1", "Page 3", "Page 7"],
-  };
-};
+const getDummyResponse = (question, docName) => ({
+  content: `Based on "${docName}", here is what I found regarding: "${question}"\n\nThis is a placeholder response. The actual AI-powered answer will appear here once the RAG pipeline is connected.`,
+  sources: ["Page 1", "Page 3", "Page 7"],
+});
 
 const ChatPage = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -27,11 +25,13 @@ const ChatPage = () => {
   const [loadingDocs, setLoadingDocs] = useState(true);
   const [messages, setMessages] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
-  const [chatHistories, setChatHistories] = useState({});
+  const [conversations, setConversations] = useState([]);
+  const [currentConversation, setCurrentConversation] = useState(null);
 
   // Fetch documents on load
   useEffect(() => {
     fetchDocuments();
+    fetchConversations();
   }, []);
 
   const fetchDocuments = async () => {
@@ -47,20 +47,61 @@ const ChatPage = () => {
     }
   };
 
-  // When currentDoc changes, load its chat history
+  const fetchConversations = async () => {
+    try {
+      const response = await API.get("/chat/conversations");
+      if (response.data.success) {
+        setConversations(response.data.conversations);
+      }
+    } catch (error) {
+      console.error("Failed to fetch conversations:", error);
+    }
+  };
+
+  const loadConversationMessages = async (conversationId) => {
+    try {
+      const response = await API.get(`/chat/messages/${conversationId}`);
+      if (response.data.success) {
+        const formatted = response.data.messages.map((msg) => ({
+          id: msg._id,
+          role: msg.role,
+          content: msg.content,
+          sources: msg.sources,
+          timestamp: msg.createdAt,
+        }));
+        setMessages(formatted);
+      }
+    } catch (error) {
+      console.error("Failed to load messages:", error);
+    }
+  };
+
+  // When currentDoc changes, check for existing conversation
   useEffect(() => {
     if (currentDoc) {
       const docId = currentDoc._id || currentDoc.id;
-      const history = chatHistories[docId] || [];
-      setMessages(history);
+      const existing = conversations.find(
+        (c) => (c.documentId?._id || c.documentId) === docId,
+      );
+      if (existing) {
+        setCurrentConversation(existing);
+        loadConversationMessages(existing._id);
+      } else {
+        setCurrentConversation(null);
+        setMessages([]);
+      }
     } else {
+      setCurrentConversation(null);
       setMessages([]);
     }
   }, [currentDoc]);
 
   const handleUpload = async (file) => {
-    setUploading(true);
     setShowUpload(false);
+    setUploading(true);
+
+    const uploadToast = toast.loading("Uploading document...");
+
     try {
       const formData = new FormData();
       formData.append("pdf", file);
@@ -70,15 +111,25 @@ const ChatPage = () => {
       });
 
       if (response.data.success) {
-        setCurrentDoc(response.data.document);
+        const doc = response.data.document;
+        setCurrentDoc(doc);
         setMessages([]);
+        setCurrentConversation(null);
         fetchDocuments();
+
+        toast.success(
+          `${doc.originalName} uploaded · ${doc.pageCount} pages ready`,
+          {
+            id: uploadToast,
+            duration: 3000,
+          },
+        );
       }
     } catch (error) {
       console.error("Upload failed:", error);
       const message =
         error.response?.data?.message || "Upload failed. Please try again.";
-      alert(message);
+      toast.error(message, { id: uploadToast });
     } finally {
       setUploading(false);
     }
@@ -86,26 +137,67 @@ const ChatPage = () => {
 
   const handleSend = async (question) => {
     if (!currentDoc) {
-      alert("Please upload a document first");
+      toast("Please upload a document first", {
+        icon: "⚠️",
+        duration: 3000,
+        style: {
+          background: "#1a1a1a",
+          color: "#ffffff",
+          border: "1px solid rgba(251, 191, 36, 0.3)",
+          borderRadius: "12px",
+          fontSize: "14px",
+          fontFamily: "Outfit, sans-serif",
+        },
+      });
       return;
     }
 
-    // Add user message
+    const docId = currentDoc._id || currentDoc.id;
+    let convId = currentConversation?._id;
+
+    // Create conversation if none exists
+    if (!convId) {
+      try {
+        const convResponse = await API.post("/chat/conversations", {
+          documentId: docId,
+        });
+        if (convResponse.data.success) {
+          convId = convResponse.data.conversation._id;
+          setCurrentConversation(convResponse.data.conversation);
+        }
+      } catch (error) {
+        console.error("Failed to send message:", error);
+        toast.error("Failed to send message. Try again.");
+        return;
+      }
+    }
+
+    // Add user message to UI
     const userMsg = {
       id: Date.now(),
       role: "user",
       content: question,
       timestamp: new Date(),
     };
-
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
+
+    // Save user message to backend
+    try {
+      await API.post("/chat/messages", {
+        conversationId: convId,
+        role: "user",
+        content: question,
+      });
+    } catch (error) {
+      console.error("Failed to save user message:", error);
+    }
 
     // Show typing
     setIsTyping(true);
 
-    // Simulate AI response (will be replaced with real RAG later)
-    setTimeout(() => {
+    // Dummy AI response (will be replaced with RAG)
+    setTimeout(async () => {
       const docName = currentDoc.originalName || currentDoc.fileName;
       const response = getDummyResponse(question, docName);
 
@@ -117,16 +209,22 @@ const ChatPage = () => {
         timestamp: new Date(),
       };
 
-      const finalMessages = [...updatedMessages, aiMsg];
-      setMessages(finalMessages);
+      setMessages([...updatedMessages, aiMsg]);
       setIsTyping(false);
 
-      // Save to chat history
-      const docId = currentDoc._id || currentDoc.id;
-      setChatHistories((prev) => ({
-        ...prev,
-        [docId]: finalMessages,
-      }));
+      // Save AI message to backend
+      try {
+        await API.post("/chat/messages", {
+          conversationId: convId,
+          role: "assistant",
+          content: response.content,
+          sources: response.sources,
+        });
+        // Refresh conversations for history
+        fetchConversations();
+      } catch (error) {
+        console.error("Failed to save AI message:", error);
+      }
     }, 1500);
   };
 
@@ -136,14 +234,36 @@ const ChatPage = () => {
     if (currentDoc && (currentDoc._id === docId || currentDoc.id === docId)) {
       setCurrentDoc(null);
       setMessages([]);
+      setCurrentConversation(null);
     }
+  };
 
-    // Remove chat history for deleted doc
-    setChatHistories((prev) => {
-      const updated = { ...prev };
-      delete updated[docId];
-      return updated;
-    });
+  const handleConversationDelete = (conversationId) => {
+    setConversations((prev) =>
+      prev.filter((conv) => conv._id !== conversationId),
+    );
+  };
+
+  const handleSelectHistory = (conversation) => {
+    const doc = documents.find(
+      (d) =>
+        (d._id || d.id) ===
+        (conversation.documentId?._id || conversation.documentId),
+    );
+
+    if (doc) {
+      setCurrentDoc(doc);
+      setCurrentConversation(conversation);
+      loadConversationMessages(conversation._id);
+      setActiveTab("chat");
+    }
+  };
+
+  const handleNewChat = () => {
+    setCurrentDoc(null);
+    setCurrentConversation(null);
+    setMessages([]);
+    setActiveTab("chat");
   };
 
   return (
@@ -202,12 +322,9 @@ const ChatPage = () => {
           </div>
         ) : activeTab === "history" ? (
           <HistoryView
-            chatHistories={chatHistories}
-            documents={documents}
-            onSelectHistory={(doc) => {
-              setCurrentDoc(doc);
-              setActiveTab("chat");
-            }}
+            conversations={conversations}
+            onSelectHistory={handleSelectHistory}
+            onDeleteConversation={handleConversationDelete}
           />
         ) : (
           <ChatArea

@@ -40,11 +40,10 @@ const documentSchema = new mongoose.Schema({
 documentSchema.index({ userId: 1, originalName: 1 }, { unique: true })
 
 // Normalize originalName before every save (belt-and-suspenders with the controller)
-documentSchema.pre('save', function (next) {
+documentSchema.pre('save', function () {
   if (this.originalName) {
     this.originalName = this.originalName.trim().toLowerCase()
   }
-  next()
 })
 
 module.exports = mongoose.model('Document', documentSchema)

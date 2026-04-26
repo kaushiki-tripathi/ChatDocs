@@ -1,27 +1,45 @@
-import { useCallback } from 'react'
-import { useDropzone } from 'react-dropzone'
-import { motion } from 'framer-motion'
-import ChatMessages from './ChatMessages'
+import { useCallback } from "react";
+import { useDropzone } from "react-dropzone";
+import { motion } from "framer-motion";
+import ChatMessages from "./ChatMessages";
+import toast from "react-hot-toast";
 
 /**
  * Upload Modal
  */
 const UploadModal = ({ isOpen, onClose, onUpload }) => {
-  const onDrop = useCallback((acceptedFiles) => {
-    if (acceptedFiles.length > 0) {
-      onUpload(acceptedFiles[0])
-      onClose()
-    }
-  }, [onUpload, onClose])
+  const onDrop = useCallback(
+    (acceptedFiles, rejectedFiles) => {
+      if (rejectedFiles && rejectedFiles.length > 0) {
+        const error = rejectedFiles[0].errors[0];
+
+        if (error.code === "file-invalid-type") {
+          toast.error("Only PDF files are supported");
+          return;
+        }
+
+        if (error.code === "file-too-large") {
+          toast.error("File too large. Maximum size is 10MB");
+          return;
+        }
+      }
+
+      if (acceptedFiles.length > 0) {
+        onUpload(acceptedFiles[0]);
+        onClose();
+      }
+    },
+    [onUpload, onClose],
+  );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'application/pdf': ['.pdf'] },
+    accept: { "application/pdf": [".pdf"] },
     maxSize: 10 * 1024 * 1024,
     multiple: false,
-  })
+  });
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   return (
     <div className="upload-modal-overlay" onClick={onClose}>
@@ -31,28 +49,34 @@ const UploadModal = ({ isOpen, onClose, onUpload }) => {
         transition={{ duration: 0.25 }}
         className="upload-modal"
         onClick={(e) => e.stopPropagation()}
-        style={{ position: 'relative' }}
+        style={{ position: "relative" }}
       >
-        <button className="upload-modal__close" onClick={onClose}>✕</button>
+        <button className="upload-modal__close" onClick={onClose}>
+          ✕
+        </button>
         <h2 className="upload-modal__title">Upload Document</h2>
-        <p className="upload-modal__desc">Upload a PDF to start chatting with it</p>
+        <p className="upload-modal__desc">
+          Upload a PDF to start chatting with it
+        </p>
 
         <div
           {...getRootProps()}
-          className={`upload-zone ${isDragActive ? 'upload-zone--active' : ''}`}
+          className={`upload-zone ${isDragActive ? "upload-zone--active" : ""}`}
         >
           <input {...getInputProps()} />
           <div className="upload-zone__icon">📄</div>
           <p className="upload-zone__title">
-            {isDragActive ? 'Drop your PDF here' : 'Drag and drop or click to browse'}
+            {isDragActive
+              ? "Drop your PDF here"
+              : "Drag and drop or click to browse"}
           </p>
           <p className="upload-zone__desc">PDF files only</p>
           <p className="upload-zone__limit">Max 10MB</p>
         </div>
       </motion.div>
     </div>
-  )
-}
+  );
+};
 
 /**
  * Welcome Screen (no messages yet)
@@ -76,11 +100,10 @@ const WelcomeScreen = ({ document }) => (
     >
       {document
         ? `Chatting with: ${document.originalName}`
-        : 'Click + to upload a PDF and start asking questions'
-      }
+        : "Click + to upload a PDF and start asking questions"}
     </motion.p>
   </div>
-)
+);
 
 /**
  * Chat Area — shows messages or welcome screen
@@ -93,7 +116,7 @@ const ChatArea = ({
   onCloseUpload,
   onUpload,
 }) => {
-  const hasMessages = messages && messages.length > 0
+  const hasMessages = messages && messages.length > 0;
 
   return (
     <>
@@ -109,7 +132,7 @@ const ChatArea = ({
         onUpload={onUpload}
       />
     </>
-  )
-}
+  );
+};
 
-export default ChatArea
+export default ChatArea;

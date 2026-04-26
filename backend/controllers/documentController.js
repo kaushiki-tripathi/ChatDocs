@@ -1,9 +1,8 @@
 const Document = require("../models/Document");
-const pdfParse = require("pdf-parse");
+const parsePDF = require("pdf-parse");
 const fs = require("fs");
-const mongoose = require("mongoose");
 
-const uploadDocument = async (req, res) => {
+const uploadDocument = async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -15,29 +14,25 @@ const uploadDocument = async (req, res) => {
     // ✅ Normalize filename properly
     const normalizedName = req.file.originalname.trim().toLowerCase();
 
-    // ✅ FIXED: Cast userId to ObjectId to guarantee type-safe query
-    const userObjectId = new mongoose.Types.ObjectId(req.user._id);
-
-    // ✅ FIXED: Exact match check with proper ObjectId type
+    // ✅ FIXED: Exact match check (no regex issues)
     const existingDoc = await Document.findOne({
-      userId: userObjectId,
+      userId: req.user._id,
       originalName: normalizedName,
     });
 
     if (existingDoc) {
-      // Clean up the temp file before returning
-      if (req.file.path && fs.existsSync(req.file.path)) {
+      if (fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
 
-      return res.status(409).json({
+      return res.status(400).json({
         success: false,
         message: "This document is already uploaded",
       });
     }
 
     const document = await Document.create({
-      userId: userObjectId,
+      userId: req.user._id,
       fileName: req.file.filename,
       originalName: normalizedName, // ✅ store normalized
       fileSize: req.file.size,
@@ -45,7 +40,7 @@ const uploadDocument = async (req, res) => {
     });
 
     const dataBuffer = fs.readFileSync(req.file.path);
-    const pdfData = await pdfParse(dataBuffer);
+    const pdfData = await parsePDF(dataBuffer);
 
     await Document.findByIdAndUpdate(document._id, {
       pageCount: pdfData.numpages,
@@ -65,24 +60,13 @@ const uploadDocument = async (req, res) => {
       },
     });
   } catch (error) {
-    // ✅ FIXED: Catch MongoDB duplicate key error (race condition safety net)
-    if (error.code === 11000) {
-      // Clean up the temp file on duplicate
-      if (req.file && req.file.path && fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
-
-      return res.status(409).json({
-        success: false,
-        message: "This document is already uploaded",
-      });
-    }
-
-    res.status(500).json({
+    console.error("🔴 UPLOAD ERROR:", error); // ← add this line
+    return res.status(500).json({
       success: false,
       message: "Error processing document",
       error: error.message,
     });
+
   }
 };
 
