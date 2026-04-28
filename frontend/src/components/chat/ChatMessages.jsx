@@ -10,11 +10,27 @@ const formatTime = (date) => {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+const StreamingCursor = () => (
+  <span
+    style={{
+      display: 'inline-block',
+      width: '2px',
+      height: '14px',
+      background: '#a78bfa',
+      marginLeft: '2px',
+      verticalAlign: 'text-bottom',
+      borderRadius: '1px',
+      animation: 'blink 1s step-end infinite',
+    }}
+  />
+)
+
 /**
  * Single message bubble
  */
 const MessageBubble = ({ message, index }) => {
   const isUser = message.role === 'user'
+  const isStreaming = message.isStreaming
 
   return (
     <motion.div
@@ -30,24 +46,42 @@ const MessageBubble = ({ message, index }) => {
         </div>
       )}
 
-      <div className="chat-msg__body">
+       <div className="chat-msg__body">
+
         {/* Name + Time */}
         <div className="chat-msg__header">
           <span className="chat-msg__name">
             {isUser ? 'You' : 'ChatDocs'}
           </span>
-          <span className="chat-msg__time">
-            {formatTime(message.timestamp)}
-          </span>
+          {!isStreaming && (
+            <span className="chat-msg__time">
+              {formatTime(message.timestamp)}
+            </span>
+          )}
+          {isStreaming && (
+            <span
+              style={{
+                fontSize: '10px',
+                color: '#a78bfa',
+                fontWeight: 400,
+                letterSpacing: '0.05em',
+              }}
+            >
+              typing...
+            </span>
+          )}
         </div>
 
         {/* Message Content */}
         <div className="chat-msg__content">
-          <p className="chat-msg__text">{message.content}</p>
+          <p className="chat-msg__text">
+            {message.content}
+            {isStreaming && <StreamingCursor />}
+          </p>
         </div>
 
-        {/* Page References (AI only) */}
-        {!isUser && message.sources && message.sources.length > 0 && (
+        {/* Page References (AI only, shown after streaming done) */}
+        {!isUser && !isStreaming && message.sources && message.sources.length > 0 && (
           <div className="chat-msg__sources">
             {message.sources.map((source, i) => (
               <span key={i} className="chat-msg__source-tag">
@@ -56,6 +90,7 @@ const MessageBubble = ({ message, index }) => {
             ))}
           </div>
         )}
+
       </div>
     </motion.div>
   )
@@ -99,6 +134,12 @@ const ChatMessages = ({ messages, isTyping }) => {
 
   return (
     <div className="chat-messages">
+      <style>{`
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+      `}</style>
       <div className="chat-messages__list">
         {messages.map((msg, i) => (
           <MessageBubble key={msg.id || i} message={msg} index={i} />

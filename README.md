@@ -57,19 +57,21 @@ We all deal with large documents every day.
 | Multer | File upload handling |
 | pdf-parse | PDF text extraction |
 
-### AI & Search                                                                
+### AI & Search
 | Technology | Purpose |
 |------------|---------|
-| ChromaDB | Vector database |
-| Groq API | LLM for answer generation |
-| Embeddings | Semantic search |
+| Google Gemini API | Text embeddings (text-embedding-004) |
+| Groq API | LLM answer generation (llama3-8b-8192) |
+| ChromaDB | Vector database (semantic search) |
+| Docker | Running ChromaDB server |
 
 ### DevOps
 | Technology | Purpose |
 |------------|---------|
-| Git & GitHub | Version control |
-| Vercel | Frontend deployment |
-| Railway | Backend deployment |
+| Git + GitHub | Version control |
+| Docker | ChromaDB containerization |
+| Vercel | Frontend deployment (planned) |
+| Railway | Backend deployment (planned) |
 | MongoDB Atlas | Cloud database |
 
 ---
@@ -80,49 +82,56 @@ We all deal with large documents every day.
 - [x] Google OAuth Authentication (Sign in with Google)
 - [x] PDF Document Upload (up to 10MB)
 - [x] PDF Text Extraction
-- [x] Document Management (upload, view, delete)
-- [x] User-specific document library
-- [x] RESTful API Architecture
+- [x] RAG Pipeline (Retrieval Augmented Generation)
+- [x] Google Gemini Embeddings (text-embedding-004)
+- [x] ChromaDB Vector Database (semantic search)
+- [x] Groq AI Answer Generation (llama3-8b-8192)
+- [x] Top-K Retrieval (K=4 most relevant chunks)
+- [x] Query Cleaning and Validation
+- [x] Context Window Management
+- [x] Real-time Streaming Responses (word by word)
+- [x] Page References (every answer cites exact page)
+- [x] Chat History (persists after logout)
+- [x] Multiple Document Management
+- [x] Duplicate Document Prevention
+- [x] Conversation Delete
+- [x] Document Delete (clears vectors too)
+- [x] Toast Notifications
+- [x] Chat History Awareness (last 6 messages)
+- [x] Error Handling (empty PDF, no chunks, irrelevant questions)
 
-### In Progress 🔄
-- [ ] React Frontend (Landing page, Dashboard, Chat UI)
-- [ ] RAG Pipeline (Retrieval Augmented Generation)
-- [ ] Text Chunking and Processing
-- [ ] Embeddings Generation
-- [ ] ChromaDB Vector Database Integration
-- [ ] Groq AI Answer Generation
-- [ ] Chat with Page References
-
-### Future Goals 🎯
-- [ ] Multiple document chat (search across all PDFs)
-- [ ] Chat history and conversation management
-- [ ] Document summary with one click
-- [ ] Export chat as PDF report
-- [ ] Dark mode
-- [ ] Mobile responsive design
-- [ ] Support for Word documents (.docx)
-- [ ] Support for PowerPoint (.pptx)
-- [ ] Collaborative document sharing
-- [ ] Usage analytics dashboard
 ---
 
 ##  Architecture: 
-ChatDocs uses RAG (Retrieval Augmented Generation):
 
-- UPLOAD PHASE:
-PDF → Extract Text → Split into Chunks → Convert to Embeddings → Store in ChromaDB
+### RAG Pipeline
+UPLOAD PHASE (once per document):
+PDF Upload
+→ Extract Text (pdf-parse)
+→ Split into Chunks (1000 chars, 200 overlap)
+→ Generate Embeddings (Google Gemini)
+→ Store in ChromaDB with metadata (page numbers)
 
-- QUESTION PHASE:
-User Question → Convert to Embedding → Search ChromaDB → Get Top 5 Relevant Chunks → Build Prompt → Send to Groq AI → Get Answer with Page References → Show to User
-
+QUESTION PHASE (every question):
+User Question
+→ Clean Query
+→ Generate Question Embedding (Gemini)
+→ Search ChromaDB → Top 4 Similar Chunks
+→ Format Context with Page Numbers
+→ Add Chat History
+→ Stream to Groq AI (llama3-8b-8192)
+→ Stream Response to Frontend (SSE)
+→ Save to MongoDB
 ---
 
 ### Prerequisites
 ```
 Node.js v18+
+Docker Desktop (for ChromaDB)
 MongoDB Atlas account
 Google Cloud Console account
 Groq API account (free)
+Google AI Studio account (free, for Gemini)
 ```
 
 ```
@@ -134,11 +143,35 @@ JWT_SECRET=your_super_secret_jwt_key
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
-CLIENT_URL=http://localhost:300
+CLIENT_URL=http://localhost:5173
+GROQ_API_KEY
+GEMINI_API_KEY
 ```
 ```
 # Clone the repository
 git clone https://github.com/yourusername/chatdocs-backend.git
+
+# Pull and run ChromaDB container
+docker run -d \
+  --name chromadb \
+  -p 8000:8000 \
+  -v chroma_data:/chroma/chroma \
+  chromadb/chroma
+
+# Verify it is running
+docker ps
+
+# Test ChromaDB heartbeat
+curl http://localhost:8000/api/v1/heartbeat
+
+# Stop ChromaDB
+docker stop chromadb
+
+# Start ChromaDB again
+docker start chromadb
+
+# View logs
+docker logs chromadb
 
 # Go to backend folder
 cd backend

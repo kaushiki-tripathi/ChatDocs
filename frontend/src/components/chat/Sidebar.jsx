@@ -184,15 +184,15 @@ const Sidebar = ({
                     const response = await API.delete(`/documents/${docId}`);
                     if (response.data.success) {
                       onDocumentDelete(docId);
+                      toast.dismiss(deleteToast); 
                       toast.success("Document deleted", {
-                        id: deleteToast,
                         duration: 3000,
                       });
                     }
                   } catch (error) {
                     console.error("Delete failed:", error);
+                    toast.dismiss(deleteToast);
                     toast.error("Failed to delete document", {
-                      id: deleteToast,
                       duration: 4000,
                     });
                   }

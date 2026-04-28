@@ -5,15 +5,10 @@ import ChatArea from "../components/chat/ChatArea";
 import ChatInput from "../components/chat/ChatInput";
 import HistoryView from "../components/chat/HistoryView";
 import API from "../lib/api";
+import { streamQuestion } from "../lib/streamApi";
 import "../styles/chat.css";
 
-/**
- * Dummy AI response (replaced with real RAG later)
- */
-const getDummyResponse = (question, docName) => ({
-  content: `Based on "${docName}", here is what I found regarding: "${question}"\n\nThis is a placeholder response. The actual AI-powered answer will appear here once the RAG pipeline is connected.`,
-  sources: ["Page 1", "Page 3", "Page 7"],
-});
+
 
 const ChatPage = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -112,9 +107,19 @@ const ChatPage = () => {
 
       if (response.data.success) {
         const doc = response.data.document;
-        setCurrentDoc(doc);
+        // Normalize id → _id so sidebar filtering works instantly
+        const normalizedDoc = { ...doc, _id: doc._id || doc.id };
+        setCurrentDoc(normalizedDoc);
         setMessages([]);
         setCurrentConversation(null);
+        // Optimistically add to list so sidebar updates in real time
+        setDocuments((prev) => {
+          const exists = prev.some(
+            (d) => (d._id || d.id) === (normalizedDoc._id || normalizedDoc.id)
+          );
+          return exists ? prev : [normalizedDoc, ...prev];
+        });
+        // Also refetch from DB for full consistency
         fetchDocuments();
 
         toast.success(
@@ -175,58 +180,108 @@ const ChatPage = () => {
     // Add user message to UI
     const userMsg = {
       id: Date.now(),
-      role: "user",
+      role: 'user',
       content: question,
       timestamp: new Date(),
-    };
-    const updatedMessages = [...messages, userMsg];
-    setMessages(updatedMessages);
-
-    // Save user message to backend
-    try {
-      await API.post("/chat/messages", {
-        conversationId: convId,
-        role: "user",
-        content: question,
-      });
-    } catch (error) {
-      console.error("Failed to save user message:", error);
     }
+    const messagesWithUser = [...messages, userMsg]
+    setMessages(messagesWithUser)
 
-    // Show typing
-    setIsTyping(true);
+    // Show typing indicator
+    setIsTyping(true)
 
-    // Dummy AI response (will be replaced with RAG)
-    setTimeout(async () => {
-      const docName = currentDoc.originalName || currentDoc.fileName;
-      const response = getDummyResponse(question, docName);
+    // Add empty AI message that will be filled by streaming
+    const aiMsgId = Date.now() + 1
+    let firstChunk = true; // track if AI message has been added yet
 
-      const aiMsg = {
-        id: Date.now() + 1,
-        role: "assistant",
-        content: response.content,
-        sources: response.sources,
-        timestamp: new Date(),
-      };
+  const token = localStorage.getItem("token");
 
-      setMessages([...updatedMessages, aiMsg]);
+  streamQuestion(
+    convId,
+    question,
+    token,
+
+    // onChunk: first chunk replaces typing indicator with real message
+    (chunk) => {
+      if (firstChunk) {
+        firstChunk = false;
+        setIsTyping(false);
+        // Now add the AI message bubble for the first time
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: aiMsgId,
+            role: "assistant",
+            content: chunk,
+            sources: [],
+            timestamp: new Date(),
+            isStreaming: true,
+          },
+        ]);
+      } else {
+        // Append subsequent chunks
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === aiMsgId
+              ? { ...msg, content: msg.content + chunk }
+              : msg
+          )
+        );
+      }
+    },
+
+    // onDone: finalize message
+    async ({ fullResponse, sources }) => {
       setIsTyping(false);
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === aiMsgId
+            ? { ...msg, content: fullResponse, sources, isStreaming: false }
+            : msg
+        )
+      );
 
-      // Save AI message to backend
       try {
         await API.post("/chat/messages", {
           conversationId: convId,
           role: "assistant",
-          content: response.content,
-          sources: response.sources,
+          content: fullResponse,
+          sources,
         });
-        // Refresh conversations for history
         fetchConversations();
       } catch (error) {
         console.error("Failed to save AI message:", error);
       }
-    }, 1500);
-  };
+    },
+
+    // onError: show error in the message bubble
+    (errorMessage) => {
+      setIsTyping(false);
+      // If first chunk never came, add the bubble now to show the error
+      setMessages((prev) => {
+        const alreadyExists = prev.find((m) => m.id === aiMsgId);
+        if (alreadyExists) {
+          return prev.map((msg) =>
+            msg.id === aiMsgId
+              ? { ...msg, content: errorMessage, isStreaming: false }
+              : msg
+          );
+        }
+        return [
+          ...prev,
+          {
+            id: aiMsgId,
+            role: "assistant",
+            content: errorMessage,
+            sources: [],
+            timestamp: new Date(),
+            isStreaming: false,
+          },
+        ];
+      });
+    }
+  );
+};
 
   const handleDocumentDelete = (docId) => {
     setDocuments((prev) => prev.filter((doc) => (doc._id || doc.id) !== docId));
@@ -341,7 +396,7 @@ const ChatPage = () => {
         <ChatInput
           onSend={handleSend}
           onUploadClick={() => setShowUpload(true)}
-          disabled={!currentDoc}
+          disabled={!currentDoc || isTyping}
         />
       </main>
     </div>

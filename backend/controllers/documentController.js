@@ -1,8 +1,9 @@
 const Document = require("../models/Document");
 const parsePDF = require("pdf-parse");
 const fs = require("fs");
+const {indexDocument, deleteDocumentVectors} = require('../services/ragService')
 
-const uploadDocument = async (req, res, next) => {
+const uploadDocument = async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -11,10 +12,8 @@ const uploadDocument = async (req, res, next) => {
       });
     }
 
-    // ✅ Normalize filename properly
     const normalizedName = req.file.originalname.trim().toLowerCase();
 
-    // ✅ FIXED: Exact match check (no regex issues)
     const existingDoc = await Document.findOne({
       userId: req.user._id,
       originalName: normalizedName,
@@ -34,7 +33,7 @@ const uploadDocument = async (req, res, next) => {
     const document = await Document.create({
       userId: req.user._id,
       fileName: req.file.filename,
-      originalName: normalizedName, // ✅ store normalized
+      originalName: normalizedName, 
       fileSize: req.file.size,
       status: "processing",
     });
@@ -58,9 +57,19 @@ const uploadDocument = async (req, res, next) => {
         pageCount: pdfData.numpages,
         status: "ready",
       },
-    });
+    });console.log('\n Starting RAG indexing in background...')
+    indexDocument(
+      document._id.toString(),
+      pdfData.text,
+      pdfData.numpages
+    ).then(() => {
+      console.log(`RAG indexing complete for: ${normalizedName}`)
+    }).catch((error) => {
+      console.error(` RAG indexing failed for: ${normalizedName}`, error.message)
+    })
+
   } catch (error) {
-    console.error("🔴 UPLOAD ERROR:", error); // ← add this line
+    console.error("UPLOAD ERROR:", error); // ← add this line
     return res.status(500).json({
       success: false,
       message: "Error processing document",
@@ -113,6 +122,11 @@ const deleteDocument = async (req, res) => {
 
     await Document.findByIdAndDelete(req.params.id);
 
+    deleteDocumentVectors(req.params.id.toString())
+      .catch(error => {
+        console.error('Failed to delete vectors:', error.message)
+      })
+
     res.status(200).json({
       success: true,
       message: "Document deleted successfully",
@@ -126,8 +140,63 @@ const deleteDocument = async (req, res) => {
   }
 };
 
+
+const reindexDocument = async (req, res) => {
+  try {
+    // Find document and verify ownership
+    const document = await Document.findOne({
+      _id: req.params.id,
+      userId: req.user._id,
+    })
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found',
+      })
+    }
+
+    // Check if text was extracted
+    if (!document.extractedText || document.extractedText.trim().length < 50) {
+      return res.status(400).json({
+        success: false,
+        message: 'Document has no extractable text. Please re-upload.',
+      })
+    }
+
+    console.log(`\n🔄 Re-indexing: ${document.originalName}`)
+
+    // Re-index document
+    await indexDocument(
+      document._id.toString(),
+      document.extractedText,
+      document.pageCount
+    )
+
+    res.status(200).json({
+      success: true,
+      message: `Document re-indexed successfully`,
+      document: {
+        id: document._id,
+        originalName: document.originalName,
+        pageCount: document.pageCount,
+      },
+    })
+
+  } catch (error) {
+    console.error('❌ Re-index failed:', error.message)
+    res.status(500).json({
+      success: false,
+      message: 'Re-indexing failed',
+      error: error.message,
+    })
+  }
+}
+
+
 module.exports = {
   uploadDocument,
   getDocuments,
   deleteDocument,
+  reindexDocument,
 };

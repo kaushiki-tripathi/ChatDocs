@@ -54,15 +54,15 @@ const HistoryView = ({ conversations, onSelectHistory, onDeleteConversation }) =
                   const response = await API.delete(`/chat/conversations/${conversationId}`);
                   if (response.data.success) {
                     onDeleteConversation(conversationId);
+                    toast.dismiss(deleteToast);
                     toast.success("Conversation deleted", {
-                      id: deleteToast,
                       duration: 3000,
                     });
                   }
                 } catch (error) {
                   console.error("Delete failed:", error);
+                  toast.dismiss(deleteToast);
                   toast.error("Failed to delete conversation", {
-                    id: deleteToast,
                     duration: 4000,
                   });
                 }

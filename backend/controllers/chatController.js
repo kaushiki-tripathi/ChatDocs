@@ -1,5 +1,7 @@
 const Conversation = require('../models/Conversation')
 const Message = require('../models/Message')
+const Document = require('../models/Document')
+const {queryDocument} = require('../services/ragService')
 
 /**
  * Create new conversation
@@ -191,10 +193,122 @@ const deleteConversation = async (req, res) => {
   }
 }
 
+// Main AI endpoint
+
+const askQuestion = async (req, res) => {
+  const { conversationId, question } = req.body
+
+  try {
+
+    // STEP 1: Validate inputs
+    if (!conversationId || !question) {
+      return res.status(400).json({
+        success: false,
+        message: 'conversationId and question are required'
+      })
+    }
+
+    // STEP 2: Find conversation and verify ownership
+    const conversation = await Conversation.findOne({
+      _id: conversationId,
+      userId: req.user._id
+    }).populate('documentId')
+
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Conversation not found'
+      })
+    }
+
+    // STEP 3: Get document details
+    const document = conversation.documentId
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found'
+      })
+    }
+
+    const documentId = document._id.toString()
+    const documentName = document.originalName || document.fileName
+
+    // STEP 4: Get recent chat history for context awareness
+    const recentMessages = await Message.find({
+      conversationId
+    })
+    .sort({ createdAt: -1 })
+    .limit(6)
+
+    // Reverse to get chronological order
+    const chatHistory = recentMessages.reverse()
+
+    // STEP 5: Save user message to database
+    await Message.create({
+      conversationId,
+      role: 'user',
+      content: question,
+      sources: []
+    })
+
+    // Update conversation title if first message
+    const messageCount = await Message.countDocuments({ conversationId })
+    if (messageCount === 1) {
+      await Conversation.findByIdAndUpdate(conversationId, {
+        title: question.slice(0, 60)
+      })
+    }
+
+    // STEP 6: Stream answer via RAG pipeline
+    // ragService handles everything:
+    // clean question → search ChromaDB → stream Groq answer
+    // It also saves the AI response after streaming completes
+    const ragResult = await queryDocument(
+      res,
+      documentId,
+      documentName,
+      question,
+      chatHistory
+    )
+
+    // STEP 7: Save AI response to MongoDB after streaming
+    if (ragResult && ragResult.fullResponse) {
+      await Message.create({
+        conversationId,
+        role: 'assistant',
+        content: ragResult.fullResponse,
+        sources: ragResult.sourcePages || [],
+      })
+
+      console.log('✅ AI response saved to MongoDB')
+    }
+    
+    // Update conversation timestamp
+    await Conversation.findByIdAndUpdate(conversationId, {
+      updatedAt: new Date()
+    })
+
+  } catch (error) {
+    console.error('❌ askQuestion error:', error)
+
+    // Only send error if headers not already sent
+    // (streaming might have already started)
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: 'Error processing question',
+        error: error.message
+      })
+    }
+  }
+}
+
 module.exports = {
   createConversation,
   getConversations,
   saveMessage,
   getMessages,
-  deleteConversation
+  deleteConversation,
+  askQuestion,
 }
