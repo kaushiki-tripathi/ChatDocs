@@ -7,7 +7,9 @@
     "start": "node --max-old-space-size=4096 server.js",
     "dev": "nodemon --exec \"node --max-old-space-size=4096\" server.js"
   },
-  "keywords": [],
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "author": "",
   "license": "ISC",
   "dependencies": {

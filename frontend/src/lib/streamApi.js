@@ -11,7 +11,7 @@
  * We use fetch() with ReadableStream instead.
  */
 
-const BASE_URL = 'http://localhost:5000/api'
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 
 /**
  * Sends question to backend and streams response.
