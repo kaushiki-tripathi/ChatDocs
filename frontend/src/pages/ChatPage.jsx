@@ -232,27 +232,24 @@ const ChatPage = () => {
 
     // onDone: finalize message
     async ({ fullResponse, sources }) => {
-      setIsTyping(false);
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === aiMsgId
-            ? { ...msg, content: fullResponse, sources, isStreaming: false }
-            : msg
-        )
-      );
+  setIsTyping(false)
 
-      try {
-        await API.post("/chat/messages", {
-          conversationId: convId,
-          role: "assistant",
+  // Update UI with final response
+  setMessages(prev => prev.map(msg =>
+    msg.id === aiMsgId
+      ? {
+          ...msg,
           content: fullResponse,
-          sources,
-        });
-        fetchConversations();
-      } catch (error) {
-        console.error("Failed to save AI message:", error);
-      }
-    },
+          sources: sources,
+          isStreaming: false,
+        }
+      : msg
+  ))
+
+  // Refresh conversations for history tab
+  // Backend already saved the message
+  fetchConversations()
+},
 
     // onError: show error in the message bubble
     (errorMessage) => {
