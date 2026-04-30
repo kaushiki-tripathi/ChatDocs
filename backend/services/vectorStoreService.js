@@ -19,11 +19,10 @@
 
 const { ChromaClient } = require('chromadb')
 
+
 // Connects to ChromaDB running in memory
 const client = new ChromaClient({
-  host: process.env.CHROMA_HOST || 'localhost',
-  port: parseInt(process.env.CHROMA_PORT) || 8000,
-  ssl: process.env.CHROMA_SSL === 'true',
+  path: process.env.CHROMA_URL,
 })
 
 
