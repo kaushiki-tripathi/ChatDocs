@@ -112,7 +112,8 @@ PDF Upload
 → Generate Embeddings (Google Gemini)
 → Store in ChromaDB with metadata (page numbers)
 
-QUESTION PHASE (every question):
+### QUESTION PHASE (every question):
+
 User Question
 → Clean Query
 → Generate Question Embedding (Gemini)
