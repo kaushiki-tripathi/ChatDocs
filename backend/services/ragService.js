@@ -77,7 +77,7 @@ const indexDocument = async (documentId, extractedText, totalPages) => {
 
     // Prepare ChromaDB collection first (delete old, create new)
     const { ChromaClient } = require('chromadb')
-    const chromaClient = new ChromaClient({ host: 'localhost', port: 8000, ssl: false })
+    const chromaClient = new ChromaClient({ path: process.env.CHROMA_URL })
     const collectionName = `doc_${documentId.toString()}`
 
     try {
@@ -89,7 +89,8 @@ const indexDocument = async (documentId, extractedText, totalPages) => {
 
     const collection = await chromaClient.createCollection({
       name: collectionName,
-      metadata: { documentId: documentId.toString() }
+      metadata: { documentId: documentId.toString() },
+      embeddingFunction: null
     })
 
     let totalStored = 0
