@@ -19,7 +19,7 @@ const storeEmbeddings = async (documentId, chunks, embeddings) => {
     console.log(`📤 Upserting ${vectors.length} vectors to Pinecone...`);
     console.log(`   First vector ID: ${vectors[0]?.id}, dimensions: ${vectors[0]?.values?.length}`);
 
-    await index.upsert(vectors);
+    await index.upsert({ records: vectors });
 
     console.log(`✅ Stored ${vectors.length} vectors in Pinecone`);
   } catch (error) {
@@ -84,7 +84,7 @@ const deleteDocumentVectors = async (documentId) => {
     const ids = queryResponse.matches.map((match) => match.id);
 
     if (ids.length > 0) {
-      await index.deleteMany(ids);
+      await index.deleteMany({ ids });
     }
 
     console.log(`✅ Deleted vectors for document: ${documentId}`);
