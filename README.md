@@ -1,6 +1,5 @@
 <div align="center">
-
-# ChatDocs 
+<h1><img src="frontend/public/logo.png" alt="ChatDocs Logo" width="30" style="vertical-align: text-bottom;" /> ChatDocs</h1>
 
 It is an AI-powered web application that lets users upload PDF documents and have intelligent conversations with them. 
 Ask questions in plain English, get instant accurate answers with exact page references.
@@ -67,18 +66,16 @@ We all deal with large documents every day.
 ### AI & Search
 | Technology | Purpose |
 |------------|---------|
-| Google Gemini API | Text embeddings (text-embedding-004) |
-| Groq API | LLM answer generation (llama3-8b-8192) |
-| ChromaDB | Vector database (semantic search) |
-| Docker | Running ChromaDB server |
+| Google Gemini API | Text embeddings (gemini-embedding-001) |
+| Groq API | LLM answer generation (llama-3.3-70b-versatile) |
+| Pinecone | Vector database (semantic search) |
 
 ### DevOps
 | Technology | Purpose |
 |------------|---------|
 | Git + GitHub | Version control |
-| Docker | ChromaDB containerization |
-| Vercel | Frontend deployment (planned) |
-| Railway | Backend deployment (planned) |
+| Vercel | Frontend deployment |
+| Render | Backend deployment |
 | MongoDB Atlas | Cloud database |
 
 ---
@@ -90,9 +87,9 @@ We all deal with large documents every day.
 - [x] PDF Document Upload (up to 10MB)
 - [x] PDF Text Extraction
 - [x] RAG Pipeline (Retrieval Augmented Generation)
-- [x] Google Gemini Embeddings (text-embedding-004)
-- [x] ChromaDB Vector Database (semantic search)
-- [x] Groq AI Answer Generation (llama3-8b-8192)
+- [x] Google Gemini Embeddings (gemini-embedding-001)
+- [x] Pinecone Vector Database (semantic search)
+- [x] Groq AI Answer Generation (llama-3.3-70b-versatile)
 - [x] Top-K Retrieval (K=4 most relevant chunks)
 - [x] Query Cleaning and Validation
 - [x] Context Window Management
@@ -117,34 +114,32 @@ PDF Upload
 → Extract Text (pdf-parse)
 → Split into Chunks (1000 chars, 200 overlap)
 → Generate Embeddings (Google Gemini)
-→ Store in ChromaDB with metadata (page numbers)
+→ Store in Pinecone with metadata (page numbers)
 
-### QUESTION PHASE (every question):
-
+## QUESTION PHASE (every question):
 User Question
 → Clean Query
 → Generate Question Embedding (Gemini)
-→ Search ChromaDB → Top 4 Similar Chunks
+→ Search Pinecone → Top 4 Similar Chunks
 → Format Context with Page Numbers
 → Add Chat History
-→ Stream to Groq AI (llama3-8b-8192)
+→ Stream to Groq AI (llama-3.3-70b-versatile)
 → Stream Response to Frontend (SSE)
 → Save to MongoDB
 ---
 
 ### Prerequisites
 ```
-Node.js v18+
-Docker Desktop (for ChromaDB)
+Node.js v22+
 MongoDB Atlas account
 Google Cloud Console account
 Groq API account (free)
 Google AI Studio account (free, for Gemini)
+Pinecone account (free)
 ```
 
+### Environment Variables
 ```
-Environment Variables
-
 PORT=5000
 MONGODB_URI=your_mongodb_connection_string
 JWT_SECRET=your_super_secret_jwt_key
@@ -152,48 +147,38 @@ GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
 CLIENT_URL=http://localhost:5173
-GROQ_API_KEY
-GEMINI_API_KEY
+GROQ_API_KEY=your_groq_api_key
+GEMINI_API_KEY=your_gemini_api_key
+PINECONE_API_KEY=your_pinecone_api_key
+PINECONE_INDEX_NAME=your_pinecone_index_name
 ```
-```
+
+### Getting Started
+```bash
 # Clone the repository
-git clone https://github.com/yourusername/chatdocs-backend.git
-
-# Pull and run ChromaDB container
-docker run -d \
-  --name chromadb \
-  -p 8000:8000 \
-  -v chroma_data:/chroma/chroma \
-  chromadb/chroma
-
-# Verify it is running
-docker ps
-
-# Test ChromaDB heartbeat
-curl http://localhost:8000/api/v1/heartbeat
-
-# Stop ChromaDB
-docker stop chromadb
-
-# Start ChromaDB again
-docker start chromadb
-
-# View logs
-docker logs chromadb
+git clone https://github.com/kaushiki-tripathi/ChatDocs.git
 
 # Go to backend folder
-cd backend
+cd ChatDocs/backend
 
 # Install dependencies
 npm install
 
-# Create .env file
-
-# Add your credentials to .env file
+# Create .env file and add your credentials
 
 # Start development server
 npm run dev
+
+# Go to frontend folder (in a new terminal)
+cd ../frontend
+
+# Install dependencies
+npm install
+
+# Start frontend
+npm run dev
 ```
+
 ## Author
 - Kaushiki Tripathi
 - LinkedIn: https://www.linkedin.com/in/kaushikitripathi2005/
