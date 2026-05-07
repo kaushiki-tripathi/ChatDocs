@@ -30,8 +30,15 @@ We all deal with large documents every day.
 
 ---
 
-## Live Demo & Screenshots
-- Coming soon...
+## Screenshots
+- **Login Page**
+![image](https://github.com/kaushiki-tripathi/ChatDocs/blob/6effb04605aea99e911d85bffce2c6f8c3961f54/Login%20Page.png)
+- **Sidebar Page**
+![image](https://github.com/kaushiki-tripathi/ChatDocs/blob/6effb04605aea99e911d85bffce2c6f8c3961f54/Sidebar.png)
+- **Chat Page**
+![image](https://github.com/kaushiki-tripathi/ChatDocs/blob/6effb04605aea99e911d85bffce2c6f8c3961f54/ChatPage.png)
+- **History Page**
+![image](https://github.com/kaushiki-tripathi/ChatDocs/blob/6effb04605aea99e911d85bffce2c6f8c3961f54/History%20Page.png)
 
 ---
 
