@@ -21,7 +21,9 @@ const { ChromaClient } = require('chromadb')
 
 // Connects to ChromaDB running in memory
 const client = new ChromaClient({
-  path: process.env.CHROMA_URL,
+  host: "chatdocs-chroma.onrender.com",
+port: 443,
+ssl: true
 })
 
 
