@@ -14,8 +14,8 @@
   "license": "ISC",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@pinecone-database/pinecone": "^7.2.0",
     "bcryptjs": "^3.0.3",
-    "chromadb": "^3.4.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

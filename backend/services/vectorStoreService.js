@@ -1,174 +1,100 @@
-/**
- * VECTOR STORE SERVICE
- *
- * Responsibility:
- * Stores chunk embeddings in ChromaDB.
- * Searches ChromaDB to find relevant chunks.
- *
- * Why ChromaDB:
- * Regular databases find exact matches only.
- * ChromaDB finds SIMILAR meanings.
- * Perfect for semantic search.
- *
- * Collections:
- * Each document gets its OWN collection.
- * Collection name = "doc_" + documentId
- * This keeps documents separate.
- * User only searches their own document.
- */
+const index = require("../config/pinecone");
 
-const { ChromaClient } = require('chromadb')
-
-// Connects to ChromaDB running in memory
-const client = new ChromaClient({
-  host: "chatdocs-chroma.onrender.com",
-port: 443,
-ssl: true
-})
-
-
-const TOP_K = 4              // How many chunks to retrieve per question
-
-
-const MIN_SIMILARITY = 0.3        // Minimum similarity score (0 to 1)
-// Below this = not relevant enough
-
-
-const getCollectionName = (documentId) => {
-  return `doc_${documentId.toString()}`
-}
-
+const TOP_K = 4;
+const MIN_SIMILARITY = 0.3;
 
 const storeEmbeddings = async (documentId, chunks, embeddings) => {
-  const collectionName = getCollectionName(documentId)
-
   try {
-    // Delete existing collection if it exists
-    // This handles re-upload of same document
-    try {
-      await client.deleteCollection({ name: collectionName, })
-      console.log(`🗑️  Deleted existing collection: ${collectionName}`)
-    } catch {
-      // Collection did not exist, that is fine
-    }
+    const vectors = chunks.map((chunk, i) => ({
+      id: `${documentId}_chunk_${i}`,
+      values: embeddings[i],
+      metadata: {
+        documentId: documentId.toString(),
+        text: chunk.text,
+        pageNumber: chunk.metadata.pageNumber,
+        chunkIndex: chunk.metadata.chunkIndex,
+      },
+    }));
 
-    // Create fresh collection
-    const collection = await client.createCollection({
-  name: collectionName,
-  metadata: { documentId: documentId.toString() },
-  embeddingFunction: null,
-})
+    console.log(`📤 Upserting ${vectors.length} vectors to Pinecone...`);
+    console.log(`   First vector ID: ${vectors[0]?.id}, dimensions: ${vectors[0]?.values?.length}`);
 
+    await index.upsert(vectors);
 
-    // Prepare data for ChromaDB
-    const ids = chunks.map((_, i) => `chunk_${i}`)
-    const documents = chunks.map(chunk => chunk.text)
-    const metadatas = chunks.map(chunk => ({
-      documentId: chunk.metadata.documentId,
-      chunkIndex: chunk.metadata.chunkIndex.toString(),
-      pageNumber: chunk.metadata.pageNumber.toString(),
-      startPos: chunk.metadata.startPos.toString(),
-      endPos: chunk.metadata.endPos.toString(),
-    }))
-
-    // Store everything in ChromaDB
-    await collection.add({
-      ids,
-      embeddings,
-      documents,
-      metadatas,
-    })
-
-    console.log(`✅ Stored ${chunks.length} chunks in ChromaDB`)
-    console.log(`   Collection: ${collectionName}`)
-
+    console.log(`✅ Stored ${vectors.length} vectors in Pinecone`);
   } catch (error) {
-    console.error('❌ Failed to store embeddings:', error)
-    throw new Error(`Vector store failed: ${error.message}`)
+    console.error("❌ Failed to store embeddings:", error);
+    throw new Error(`Vector store failed: ${error.message}`);
   }
-}
-
+};
 
 const searchSimilarChunks = async (documentId, queryEmbedding) => {
-  const collectionName = getCollectionName(documentId)
-
   try {
-    // Get the collection for this document
-    const collection = await client.getCollection({
-  name: collectionName,
-  embeddingFunction: null,
-})
+    console.log(`🔍 Querying Pinecone for documentId: ${documentId}, embedding dimensions: ${queryEmbedding?.length}`);
 
-    // Search for similar chunks
-    const results = await collection.query({
-      queryEmbeddings: [queryEmbedding],
-      nResults: TOP_K,
-      include: ['documents', 'metadatas', 'distances']
-    })
+    const queryResponse = await index.query({
+      vector: queryEmbedding,
+      topK: TOP_K,
+      includeMetadata: true,
+      filter: {
+        documentId: documentId.toString(),
+      },
+    });
 
-    // No results found
-    if (!results.documents[0] || results.documents[0].length === 0) {
-      return []
+    console.log(`   Raw matches from Pinecone: ${queryResponse.matches?.length || 0}`);
+
+    if (!queryResponse.matches || queryResponse.matches.length === 0) {
+      return [];
     }
 
-    // Format results
-    const chunks = results.documents[0].map((text, i) => {
-      const distance = results.distances[0][i]
+    // Log scores to help debug similarity threshold
+    queryResponse.matches.forEach((match, i) => {
+      console.log(`   Match ${i}: score=${match.score}, id=${match.id}`);
+    });
 
-      // ChromaDB returns distance (lower = more similar)
-      // Convert to similarity score (higher = more similar)
-      const similarity = 1 - distance
+    const relevantChunks = queryResponse.matches
+      .map((match) => ({
+        text: match.metadata.text,
+        pageNumber: match.metadata.pageNumber || 1,
+        chunkIndex: match.metadata.chunkIndex || 0,
+        similarity: match.score,
+      }))
+      .filter((chunk) => chunk.similarity >= MIN_SIMILARITY);
 
-      return {
-        text,
-        pageNumber: parseInt(results.metadatas[0][i].pageNumber) || 1,
-        chunkIndex: parseInt(results.metadatas[0][i].chunkIndex) || 0,
-        similarity,
-      }
-    })
+    console.log(`✅ Found ${relevantChunks.length} relevant chunks (after filtering >= ${MIN_SIMILARITY})`);
 
-    // Filter by minimum similarity threshold
-    const relevantChunks = chunks.filter(
-      chunk => chunk.similarity >= MIN_SIMILARITY
-    )
-
-    console.log(`✅ Found ${relevantChunks.length} relevant chunks`)
-    relevantChunks.forEach(chunk => {
-      console.log(`   Page ${chunk.pageNumber} - similarity: ${chunk.similarity.toFixed(3)}`)
-    })
-
-    return relevantChunks
-
+    return relevantChunks;
   } catch (error) {
-    console.error('❌ Search failed:', error)
-    // Handle missing collection — document was never indexed successfully
-    if (error.name === 'ChromaNotFoundError' || error.message?.includes('not found')) {
-      throw new Error(
-        'DOCUMENT_NOT_INDEXED'
-      )
-    }
-    throw new Error(`Vector search failed: ${error.message}`)
+    console.error("❌ Search failed:", error);
+    throw new Error(`Vector search failed: ${error.message}`);
   }
-}
+};
 
-/**
- */
 const deleteDocumentVectors = async (documentId) => {
-  const collectionName = getCollectionName(documentId)
-
   try {
-    await client.deleteCollection({
-  name: collectionName
-})
-    console.log(`✅ Deleted vectors for document: ${documentId}`)
+    const queryResponse = await index.query({
+      vector: Array(768).fill(0),
+      topK: 1000,
+      includeMetadata: true,
+      filter: {
+        documentId: documentId.toString(),
+      },
+    });
+
+    const ids = queryResponse.matches.map((match) => match.id);
+
+    if (ids.length > 0) {
+      await index.deleteMany(ids);
+    }
+
+    console.log(`✅ Deleted vectors for document: ${documentId}`);
   } catch (error) {
-    // Collection might not exist if indexing failed
-    console.log(`ℹ️  No vectors found for document: ${documentId}`)
+    console.log(`ℹ️ No vectors found for document: ${documentId}`);
   }
-}
+};
 
 module.exports = {
   storeEmbeddings,
   searchSimilarChunks,
   deleteDocumentVectors,
-}
+};
