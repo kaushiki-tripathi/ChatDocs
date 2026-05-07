@@ -77,7 +77,7 @@ const indexDocument = async (documentId, extractedText, totalPages) => {
 
     // Prepare ChromaDB collection first (delete old, create new)
     const { ChromaClient } = require('chromadb')
-    const client = new ChromaClient({
+    const chromaClient = new ChromaClient({
   host: "chatdocs-chroma.onrender.com",
   port: 443,
   ssl: true
