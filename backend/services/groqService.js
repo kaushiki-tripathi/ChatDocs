@@ -150,7 +150,7 @@ const streamAnswer = async (
       messages,
       stream: true,
       temperature: 0.3,     // low = more factual, less creative
-      max_tokens: 1024,     // limit response length
+      max_tokens: 4096,     // limit response length
     })
 
     let fullResponse = ''
@@ -229,7 +229,7 @@ const getAnswer = async (
     messages,
     stream: false,
     temperature: 0.3,
-    max_tokens: 1024,
+    max_tokens: 4096,
   })
 
   return completion.choices[0]?.message?.content || ''

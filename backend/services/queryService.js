@@ -3,7 +3,7 @@
  *
  * Responsibility:
  * Cleans and prepares user questions
- * before sending to ChromaDB and Groq AI.
+ * before sending to Pinecone and Groq AI.
  *
  * Also manages context window:
  * Makes sure we do not exceed
@@ -26,7 +26,7 @@ const MAX_CONTEXT_TOKENS = 6000  // leaving 2000 for response
 const MAX_HISTORY_TOKENS = 1000
 
 // Max tokens for retrieved chunks
-const MAX_CHUNKS_TOKENS = 6000
+const MAX_CHUNKS_TOKENS = 25000
 
 /**
  * Estimates token count for a string.

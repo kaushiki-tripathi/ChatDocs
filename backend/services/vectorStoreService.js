@@ -1,6 +1,6 @@
 const index = require("../config/pinecone");
 
-const TOP_K = 8;
+const TOP_K = 30;
 const MIN_SIMILARITY = 0.3;
 
 const storeEmbeddings = async (documentId, chunks, embeddings) => {
