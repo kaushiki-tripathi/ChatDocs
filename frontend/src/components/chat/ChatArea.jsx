@@ -19,7 +19,7 @@ const UploadModal = ({ isOpen, onClose, onUpload }) => {
         }
 
         if (error.code === "file-too-large") {
-          toast.error("File too large. Maximum size is 10MB");
+          toast.error("File too large. Maximum size is 50MB");
           return;
         }
       }
@@ -35,7 +35,7 @@ const UploadModal = ({ isOpen, onClose, onUpload }) => {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: { "application/pdf": [".pdf"] },
-    maxSize: 10 * 1024 * 1024,
+    maxSize: 50 * 1024 * 1024,
     multiple: false,
   });
 
@@ -71,7 +71,7 @@ const UploadModal = ({ isOpen, onClose, onUpload }) => {
               : "Drag and drop or click to browse"}
           </p>
           <p className="upload-zone__desc">PDF files only</p>
-          <p className="upload-zone__limit">Max 10MB</p>
+          <p className="upload-zone__limit">Max 50MB</p>
         </div>
       </motion.div>
     </div>

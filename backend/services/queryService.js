@@ -26,7 +26,7 @@ const MAX_CONTEXT_TOKENS = 6000  // leaving 2000 for response
 const MAX_HISTORY_TOKENS = 1000
 
 // Max tokens for retrieved chunks
-const MAX_CHUNKS_TOKENS = 3000
+const MAX_CHUNKS_TOKENS = 6000
 
 /**
  * Estimates token count for a string.

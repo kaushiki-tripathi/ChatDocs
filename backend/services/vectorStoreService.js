@@ -1,12 +1,12 @@
 const index = require("../config/pinecone");
 
-const TOP_K = 4;
+const TOP_K = 8;
 const MIN_SIMILARITY = 0.3;
 
 const storeEmbeddings = async (documentId, chunks, embeddings) => {
   try {
     const vectors = chunks.map((chunk, i) => ({
-      id: `${documentId}_chunk_${i}`,
+      id: `${documentId}_chunk_${chunk.metadata.chunkIndex}`,
       values: embeddings[i],
       metadata: {
         documentId: documentId.toString(),
