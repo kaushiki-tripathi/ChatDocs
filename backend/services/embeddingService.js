@@ -35,22 +35,29 @@ const embedText = async (text, taskType = 'RETRIEVAL_DOCUMENT') => {
  * Pauses every 10 chunks to respect free tier rate limits.
  */
 const embedBatch = async (texts) => {
-  console.log(`⏳ Embedding ${texts.length} chunks via Gemini...`)
-  const embeddings = []
+  console.log(`⏳ Embedding ${texts.length} chunks via Gemini Batch API...`)
 
-  for (let i = 0; i < texts.length; i++) {
-    const embedding = await embedText(texts[i], 'RETRIEVAL_DOCUMENT')
-    embeddings.push(embedding)
+  const requests = texts.map(text => ({
+    model: MODEL,
+    content: { parts: [{ text }] },
+    output_dimensionality: 768,
+    task_type: 'RETRIEVAL_DOCUMENT'
+  }))
 
-    if ((i + 1) % 10 === 0 || i === texts.length - 1) {
-      console.log(`   Progress: ${i + 1}/${texts.length} chunks embedded`)
-    }
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/${MODEL}:batchEmbedContents?key=${GEMINI_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requests })
+  })
 
-    // Pause every 10 chunks to respect free tier rate limits
-    if ((i + 1) % 10 === 0 && i !== texts.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1000))
-    }
+  if (!response.ok) {
+    const err = await response.json()
+    throw new Error(`Gemini embedding error: ${JSON.stringify(err)}`)
   }
+
+  const data = await response.json()
+  
+  const embeddings = data.embeddings.map(e => e.values)
 
   console.log(`✅ Embedding complete: ${embeddings.length} vectors`)
   return embeddings

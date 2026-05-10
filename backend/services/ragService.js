@@ -68,7 +68,7 @@ const indexDocument = async (documentId, extractedText, totalPages) => {
     }
 
     // STEP 3 + 4: Embed and store in batches
-    const BATCH_SIZE = 5
+    const BATCH_SIZE = 100
 
     console.log(
       `\n🔢 Step 2: Embedding + storing in batches of ${BATCH_SIZE}...`
@@ -115,6 +115,11 @@ const indexDocument = async (documentId, extractedText, totalPages) => {
       console.log(
         `   ✅ Stored ${totalStored}/${chunks.length} chunks`
       )
+
+      // Strict 2-second delay between batches to prevent 429 Too Many Requests
+      if (batchEnd < chunks.length) {
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
     }
 
     console.log('\n✅ Document indexing complete!')

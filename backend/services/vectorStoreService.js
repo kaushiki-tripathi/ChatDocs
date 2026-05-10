@@ -72,24 +72,16 @@ const searchSimilarChunks = async (documentId, queryEmbedding) => {
 
 const deleteDocumentVectors = async (documentId) => {
   try {
-    const queryResponse = await index.query({
-      vector: Array(768).fill(0),
-      topK: 1000,
-      includeMetadata: true,
-      filter: {
-        documentId: documentId.toString(),
-      },
+    // Delete all vectors matching the documentId in a single operation
+    await index.deleteMany({ 
+      filter: { 
+        documentId: documentId.toString() 
+      } 
     });
-
-    const ids = queryResponse.matches.map((match) => match.id);
-
-    if (ids.length > 0) {
-      await index.deleteMany({ ids });
-    }
 
     console.log(`✅ Deleted vectors for document: ${documentId}`);
   } catch (error) {
-    console.log(`ℹ️ No vectors found for document: ${documentId}`);
+    console.error(`❌ Failed to delete vectors for document: ${documentId}`, error);
   }
 };
 
