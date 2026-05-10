@@ -1,5 +1,5 @@
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
-const MODEL = 'models/gemini-embedding-001'
+const MODEL = 'models/text-embedding-004'
 const BASE_URL = `https://generativelanguage.googleapis.com/v1beta/${MODEL}:embedContent?key=${GEMINI_API_KEY}`
 
 /**
