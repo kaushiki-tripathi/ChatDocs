@@ -1,1 +1,69 @@
 @import "tailwindcss";
+
+
+/* =========================================
+   CHATDOCS - READABLE AI MESSAGE CARDS
+========================================= */
+
+/* AI message card */
+.chat-msg--ai .chat-msg__content {
+  background: rgba(189, 188, 188, 0.94);
+  color: #5a595e;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 4px 18px 18px 18px;
+  padding: 18px 20px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(12px);
+  box-shadow: black 0px 4px 18px rgba(0, 0, 0, 0.12);
+}
+
+/* Ensure all Markdown text is readable */
+.chat-msg--ai .markdown-content {
+  color: #292735;
+}
+
+/* Headings */
+.chat-msg--ai .markdown-content h1,
+.chat-msg--ai .markdown-content h2,
+.chat-msg--ai .markdown-content h3,
+.chat-msg--ai .markdown-content h4 {
+  color: #292735;
+}
+
+/* Paragraphs and lists */
+.chat-msg--ai .markdown-content p,
+.chat-msg--ai .markdown-content li {
+  color: #393744;
+}
+
+/* Bold text */
+.chat-msg--ai .markdown-content strong {
+  color: #252333;
+}
+
+/* Inline code */
+.chat-msg--ai .markdown-content code {
+  background: #eee9ff;
+  color: #7155b5;
+}
+
+/* Code blocks */
+.chat-msg--ai .markdown-content pre {
+  background: #272532;
+  color: #ffffff;
+}
+
+/* Tables */
+.chat-msg--ai .markdown-content th {
+  background: #886be7;
+  color: #393047;
+}
+
+.chat-msg--ai .markdown-content td {
+  color: #393744;
+}
+
+/* Keep user message bubble unchanged */
+.chat-msg--user .chat-msg__content {
+  backdrop-filter: blur(12px);
+}

@@ -1,3 +1,4 @@
+
 import { useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion } from "framer-motion";
@@ -54,6 +55,7 @@ const UploadModal = ({ isOpen, onClose, onUpload }) => {
         <button className="upload-modal__close" onClick={onClose}>
           ✕
         </button>
+
         <h2 className="upload-modal__title">Upload Document</h2>
         <p className="upload-modal__desc">
           Upload a PDF to start chatting with it
@@ -65,11 +67,13 @@ const UploadModal = ({ isOpen, onClose, onUpload }) => {
         >
           <input {...getInputProps()} />
           <div className="upload-zone__icon">📄</div>
+
           <p className="upload-zone__title">
             {isDragActive
               ? "Drop your PDF here"
               : "Drag and drop or click to browse"}
           </p>
+
           <p className="upload-zone__desc">PDF files only</p>
           <p className="upload-zone__limit">Max 50MB</p>
         </div>
@@ -79,7 +83,60 @@ const UploadModal = ({ isOpen, onClose, onUpload }) => {
 };
 
 /**
- * Welcome Screen (no messages yet)
+ * Document Status Indicator
+ */
+const DocumentStatus = ({ document }) => {
+  if (!document) return null;
+
+  const status = document.status;
+
+  const statusConfig = {
+    processing: {
+      className: "document-status--processing",
+      icon: "◌",
+      title: "Preparing your document",
+      description: "Extracting pages and preparing them for AI chat...",
+    },
+    ready: {
+      className: "document-status--ready",
+      icon: "✓",
+      title: "Document ready",
+      description: "Your document is ready. You can start chatting.",
+    },
+    failed: {
+      className: "document-status--failed",
+      icon: "!",
+      title: "Preparation failed",
+      description: "Something went wrong while preparing your document.",
+    },
+  };
+
+  const config = statusConfig[status];
+
+  if (!config) return null;
+
+  return (
+    <motion.div
+      key={status}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className={`document-status ${config.className}`}
+    >
+      <span className="document-status__icon">{config.icon}</span>
+
+      <div className="document-status__content">
+        <span className="document-status__title">{config.title}</span>
+        <span className="document-status__description">
+          {config.description}
+        </span>
+      </div>
+    </motion.div>
+  );
+};
+
+/**
+ * Welcome Screen
  */
 const WelcomeScreen = ({ document }) => (
   <div className="chat-center">
@@ -99,14 +156,16 @@ const WelcomeScreen = ({ document }) => (
       className="chat-welcome__subtext"
     >
       {document
-        ? `Chatting with: ${document.originalName}`
+        ? document.originalName
         : "Click + to upload a PDF and start asking questions"}
     </motion.p>
+
+    {document && <DocumentStatus document={document} />}
   </div>
 );
 
 /**
- * Chat Area — shows messages or welcome screen
+ * Chat Area
  */
 const ChatArea = ({
   document,

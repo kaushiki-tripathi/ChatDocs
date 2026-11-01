@@ -1,152 +1,164 @@
+
 /**
  * CHUNKING SERVICE
  *
- * Responsibility:
- * Takes extracted PDF text and splits it into
- * smaller overlapping pieces called "chunks".
+ * Creates chunks independently for each actual PDF page.
+ * Preserves real page numbers and Unicode characters.
  */
 
-const CHUNK_SIZE = 1000   // characters per chunk
-const CHUNK_OVERLAP = 200 // overlap between chunks
+const CHUNK_SIZE = 1000;
+const CHUNK_OVERLAP = 200;
 
 /**
- * Estimates which page a chunk belongs to.
- * Based on character position in document.
- *
- * @param {number} chunkStart - where chunk starts
- * @param {number} totalLength - total document length
- * @param {number} totalPages - total PDF pages
- * @returns {number} estimated page number
- */
-const estimatePageNumber = (chunkStart, totalLength, totalPages) => {
-  if (!totalPages || totalPages === 0) return 1
-  const position = chunkStart / totalLength
-  return Math.max(1, Math.ceil(position * totalPages))
-}
-
-/**
- * Cleans extracted PDF text.
- * Removes excessive whitespace and weird characters.
- *
- * @param {string} text - raw extracted text
- * @returns {string} cleaned text
+ * Clean extracted page text without removing Unicode.
  */
 const cleanText = (text) => {
+  if (!text) return '';
+
   return text
-    .replace(/\r\n/g, '\n')        // normalize line endings
-    .replace(/\r/g, '\n')          // normalize line endings
-    .replace(/\n{3,}/g, '\n\n')    // max 2 consecutive newlines
-    .replace(/[ \t]{2,}/g, ' ')    // max 1 space
-    .replace(/[^\x20-\x7E\n]/g, '') // remove non-printable chars
-    .trim()
-}
+    .normalize('NFC')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+    .trim();
+};
 
 /**
- * Main function: splits document text into chunks.
- *
- * @param {string} text - extracted text from PDF
- * @param {string} documentId - MongoDB document ID
- * @param {number} totalPages - total pages in PDF
- * @returns {Array} array of chunk objects ready for embedding
- *
- * Each chunk looks like:
- * {
- *   text: "the actual text content...",
- *   metadata: {
- *     documentId: "abc123",
- *     chunkIndex: 0,
- *     pageNumber: 3,
- *     startPos: 0,
- *     endPos: 1000
- *   }
- * }
+ * Find a suitable sentence boundary.
  */
-const chunkDocument = (text, documentId, totalPages) => {
+const findSentenceBoundary = (text, start, end) => {
+  const section = text.slice(start, end);
 
-  // Step 1: Validate input
-  if (!text || text.trim().length === 0) {
-    throw new Error('EMPTY_DOCUMENT')
+  const punctuation = /[.!?।॥]\s/g;
+  let match;
+  let lastBoundary = -1;
+
+  while ((match = punctuation.exec(section)) !== null) {
+    if (match.index >= CHUNK_SIZE * 0.5) {
+      lastBoundary = match.index + match[0].length;
+    }
   }
 
-  // Step 2: Clean the text
-  const processed = cleanText(text)
+  return lastBoundary > 0
+    ? start + lastBoundary
+    : end;
+};
 
-  // Step 3: Split into chunks
-  const chunks = []
-  let chunkIndex = 0
-  let startPos = 0
+/**
+ * Split one page into overlapping chunks.
+ */
+const chunkPage = (page, documentId, startingChunkIndex) => {
+  const processed = cleanText(page.text);
+
+  if (!processed) return [];
+
+  const chunks = [];
+  let startPos = 0;
+  let chunkIndex = startingChunkIndex;
 
   while (startPos < processed.length) {
+    let endPos = Math.min(
+      startPos + CHUNK_SIZE,
+      processed.length
+    );
 
-    // Calculate where this chunk ends
-    let endPos = startPos + CHUNK_SIZE
-
-    // If not at document end, try to end at sentence boundary
-    // This prevents cutting sentences in half
     if (endPos < processed.length) {
-      const searchArea = processed.slice(startPos, endPos)
-
-      // Find last sentence ending in this chunk
-      const lastPeriod = searchArea.lastIndexOf('.')
-      const lastQuestion = searchArea.lastIndexOf('?')
-      const lastExclaim = searchArea.lastIndexOf('!')
-
-      const lastSentenceEnd = Math.max(
-        lastPeriod,
-        lastQuestion,
-        lastExclaim
-      )
-
-      // Use sentence boundary if it exists in second half of chunk
-      // This ensures chunks are not too small
-      if (lastSentenceEnd > CHUNK_SIZE * 0.5) {
-        endPos = startPos + lastSentenceEnd + 1
-      }
-    } else {
-      endPos = processed.length
+      endPos = findSentenceBoundary(
+        processed,
+        startPos,
+        endPos
+      );
     }
 
-    // Extract chunk text
-    const chunkText = processed.slice(startPos, endPos).trim()
+    const chunkText = processed
+      .slice(startPos, endPos)
+      .trim();
 
-    // Only add non-empty chunks
-    if (chunkText.length > 50) {
+    if (chunkText.length > 0) {
       chunks.push({
         text: chunkText,
         metadata: {
           documentId: documentId.toString(),
           chunkIndex,
-          pageNumber: estimatePageNumber(
-            startPos,
-            processed.length,
-            totalPages
-          ),
+          pageNumber: page.pageNumber,
           startPos,
           endPos,
-        }
-      })
-      chunkIndex++
+        },
+      });
+
+      chunkIndex++;
     }
 
-    // Move forward: Ensure we always move forward by at least (CHUNK_SIZE - CHUNK_OVERLAP)
-    // to avoid infinite loops, but use endPos for the overlap logic.
-    const nextStart = endPos - CHUNK_OVERLAP
-    
-    // If nextStart hasn't moved forward from current startPos, force it forward
-    if (nextStart <= startPos) {
-      startPos = endPos
-    } else {
-      startPos = nextStart
-    }
+    if (endPos >= processed.length) break;
 
-    // Stop if we've reached or passed the end
-    if (startPos >= processed.length - 50) break
+    const nextStart = endPos - CHUNK_OVERLAP;
+
+    startPos = nextStart > startPos
+      ? nextStart
+      : endPos;
   }
 
-  // Log result for debugging
-  console.log(`✅ Chunking: ${chunks.length} chunks from ${totalPages} pages`)
+  return chunks;
+};
 
-  return chunks
-}
+/**
+ * Main function.
+ *
+ * @param {Array} pages Actual page-by-page PDF content
+ * @param {string} documentId MongoDB document ID
+ */
+const chunkDocument = (pages, documentId) => {
+  if (!Array.isArray(pages) || pages.length === 0) {
+    throw new Error('EMPTY_DOCUMENT_PAGES');
+  }
 
-module.exports = { chunkDocument }
+  const chunks = [];
+  let nextChunkIndex = 0;
+
+  // Sort by actual PDF page number
+  const orderedPages = [...pages].sort(
+    (a, b) => a.pageNumber - b.pageNumber
+  );
+
+  for (const page of orderedPages) {
+    if (
+      !Number.isInteger(page.pageNumber) ||
+      page.pageNumber < 1
+    ) {
+      throw new Error('INVALID_PAGE_NUMBER');
+    }
+
+    if (!page.text || !page.text.trim()) {
+      console.log(
+        `⚠️ Skipping empty page ${page.pageNumber}`
+      );
+      continue;
+    }
+
+    const pageChunks = chunkPage(
+      page,
+      documentId,
+      nextChunkIndex
+    );
+
+    chunks.push(...pageChunks);
+    nextChunkIndex += pageChunks.length;
+  }
+
+  if (chunks.length === 0) {
+    throw new Error('NO_CHUNKS_CREATED');
+  }
+
+  console.log('\n✅ Page-aware chunking completed');
+  console.log(`   Pages received: ${orderedPages.length}`);
+  console.log(`   Chunks created: ${chunks.length}`);
+
+  return chunks;
+};
+
+module.exports = {
+  chunkDocument,
+  cleanText,
+};

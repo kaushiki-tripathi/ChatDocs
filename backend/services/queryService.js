@@ -1,57 +1,32 @@
+
 /**
  * QUERY SERVICE
  *
- * Responsibility:
- * Cleans and prepares user questions
- * before sending to Pinecone and Groq AI.
- *
- * Also manages context window:
- * Makes sure we do not exceed
- * Groq's token limit (8192 tokens).
- *
- * Why we need this:
- * Raw user input is messy.
- * Clean input = better search results.
- * Token management = prevents API errors.
+ * Cleans questions, formats chat history,
+ * and prepares document context for OpenRouter.
  */
 
-// Rough token estimator
-// 1 token ≈ 4 characters (OpenAI standard approximation)
+// Approximate token estimation.
 const CHARS_PER_TOKEN = 4
 
-// Groq LLaMA3 8B context window
-const MAX_CONTEXT_TOKENS = 6000  // leaving 2000 for response
-
-// Max tokens for chat history
+// Keep room for the model's response.
+const MAX_CONTEXT_TOKENS = 6000
 const MAX_HISTORY_TOKENS = 1000
 
-// Max tokens for retrieved chunks
-const MAX_CHUNKS_TOKENS = 25000
+// Context budget for retrieved chunks.
+const MAX_CHUNKS_TOKENS = MAX_CONTEXT_TOKENS
 
 /**
- * Estimates token count for a string.
- * Not 100% accurate but good enough
- * for context window management.
- *
- * @param {string} text
- * @returns {number} estimated token count
+ * Estimate token count.
  */
 const estimateTokens = (text) => {
   if (!text) return 0
+
   return Math.ceil(text.length / CHARS_PER_TOKEN)
 }
 
 /**
- * Cleans user question.
- *
- * Steps:
- * 1. Trim whitespace
- * 2. Normalize multiple spaces
- * 3. Remove excessive punctuation
- * 4. Convert to lowercase for better search
- *
- * @param {string} question - raw user question
- * @returns {string} cleaned question
+ * Clean user question.
  */
 const cleanQuery = (question) => {
   if (!question || question.trim().length === 0) {
@@ -60,17 +35,15 @@ const cleanQuery = (question) => {
 
   const cleaned = question
     .trim()
-    .replace(/\s+/g, ' ')              // multiple spaces → one space
-    .replace(/[!]{2,}/g, '!')          // !!! → !
-    .replace(/[?]{2,}/g, '?')          // ??? → ?
-    .replace(/[.]{4,}/g, '...')        // ..... → ...
+    .replace(/\s+/g, ' ')
+    .replace(/[!]{2,}/g, '!')
+    .replace(/[?]{2,}/g, '?')
+    .replace(/[.]{4,}/g, '...')
 
-  // Validate cleaned question is not too short
   if (cleaned.length < 2) {
     throw new Error('QUESTION_TOO_SHORT')
   }
 
-  // Validate question is not too long
   if (cleaned.length > 1000) {
     throw new Error('QUESTION_TOO_LONG')
   }
@@ -79,39 +52,31 @@ const cleanQuery = (question) => {
 }
 
 /**
- * Formats chat history for AI context.
- * Takes last N messages and formats them
- * as a conversation string.
- *
- * Why limit history:
- * Sending ALL history = context window overflow
- * Last 6 messages = enough for natural conversation
- *
- * @param {Array} messages - array of message objects
- * @returns {Array} formatted messages for Groq API
+ * Format recent chat history.
  */
 const formatChatHistory = (messages) => {
-  if (!messages || messages.length === 0) return []
+  if (!messages || messages.length === 0) {
+    return []
+  }
 
-  // Take last 6 messages only
   const recentMessages = messages.slice(-6)
 
-  // Format for Groq API
   const formatted = recentMessages.map(msg => ({
     role: msg.role === 'user' ? 'user' : 'assistant',
     content: msg.content,
   }))
 
-  // Check if history fits in token budget
   const historyText = formatted
-    .map(m => m.content)
+    .map(message => message.content)
     .join(' ')
 
   const historyTokens = estimateTokens(historyText)
 
-  // If history too long, reduce to last 4 messages
   if (historyTokens > MAX_HISTORY_TOKENS) {
-    console.log('⚠️  History too long, reducing to last 4 messages')
+    console.log(
+      '⚠️ Chat history too long. Keeping last 4 messages.'
+    )
+
     return messages.slice(-4).map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content,
@@ -122,25 +87,29 @@ const formatChatHistory = (messages) => {
 }
 
 /**
- * Formats retrieved chunks into context string.
- * This is what the AI reads to answer the question.
+ * Format retrieved chunks into document context.
  *
- * @param {Array} chunks - retrieved chunks from ChromaDB
- * @returns {string} formatted context string
+ * Keeps actual PDF page numbers.
+ * Stops at the context token budget.
  */
 const formatChunksAsContext = (chunks) => {
-  if (!chunks || chunks.length === 0) return ''
+  if (!chunks || chunks.length === 0) {
+    return ''
+  }
 
   let context = ''
   let totalTokens = 0
 
   for (const chunk of chunks) {
-    const chunkText = `[Page ${chunk.pageNumber}]\n${chunk.text}\n\n`
+    const chunkText =
+      `[Page ${chunk.pageNumber}]\n${chunk.text}\n\n`
+
     const chunkTokens = estimateTokens(chunkText)
 
-    // Stop adding chunks if we exceed token budget
     if (totalTokens + chunkTokens > MAX_CHUNKS_TOKENS) {
-      console.log('⚠️  Context window limit reached, truncating chunks')
+      console.log(
+        '⚠️ Context token budget reached. Remaining chunks omitted.'
+      )
       break
     }
 
@@ -152,19 +121,11 @@ const formatChunksAsContext = (chunks) => {
 }
 
 /**
- * Validates if question is relevant
- * to document-based Q&A.
- *
- * Catches obviously irrelevant questions
- * before wasting API calls.
- *
- * @param {string} question - cleaned question
- * @returns {boolean} true if question seems relevant
+ * Check whether a question is suitable for document Q&A.
  */
 const isQuestionRelevant = (question) => {
   const lowerQuestion = question.toLowerCase()
 
-  // Questions that are clearly NOT about a document
   const irrelevantPatterns = [
     /^(hi|hello|hey|howdy|sup)\s*[!?.]?$/,
     /^(how are you|how r u|whats up)/,
@@ -173,13 +134,9 @@ const isQuestionRelevant = (question) => {
     /^(what is your name|who are you|are you an ai)/,
   ]
 
-  for (const pattern of irrelevantPatterns) {
-    if (pattern.test(lowerQuestion)) {
-      return false
-    }
-  }
-
-  return true
+  return !irrelevantPatterns.some(
+    pattern => pattern.test(lowerQuestion)
+  )
 }
 
 module.exports = {

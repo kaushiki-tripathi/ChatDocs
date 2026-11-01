@@ -1199,3 +1199,113 @@
   background: rgba(182, 10, 10, 0.929);
   color: rgb(250, 250, 250);
 }
+
+
+/* ── Document Processing Status ── */
+
+.document-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  max-width: min(420px, 90vw);
+  padding: 12px 18px;
+  margin-top: 8px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  text-align: left;
+}
+
+.document-status__icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.document-status__content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.document-status__title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.document-status__description {
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.42);
+  line-height: 1.5;
+}
+
+/* Processing */
+.document-status--processing {
+  border-color: rgba(167, 139, 250, 0.2);
+  background: rgba(167, 139, 250, 0.055);
+}
+
+.document-status--processing .document-status__icon {
+  color: #b8a5ff;
+  background: rgba(167, 139, 250, 0.13);
+  animation: spin 2s linear infinite;
+}
+
+.document-status--processing .document-status__title {
+  color: #c4b5fd;
+}
+
+/* Ready */
+.document-status--ready {
+  border-color: rgba(134, 169, 139, 0.22);
+  background: rgba(134, 169, 139, 0.055);
+}
+
+.document-status--ready .document-status__icon {
+  color: #a5c9a9;
+  background: rgba(134, 169, 139, 0.13);
+}
+
+.document-status--ready .document-status__title {
+  color: #a5c9a9;
+}
+
+/* Failed */
+.document-status--failed {
+  border-color: rgba(220, 120, 120, 0.22);
+  background: rgba(220, 120, 120, 0.055);
+}
+
+.document-status--failed .document-status__icon {
+  color: #e99a9a;
+  background: rgba(220, 120, 120, 0.13);
+}
+
+.document-status--failed .document-status__title {
+  color: #e99a9a;
+}
+
+/* Mobile */
+@media (max-width: 600px) {
+  .document-status {
+    padding: 10px 14px;
+    gap: 10px;
+  }
+
+  .document-status__description {
+    font-size: 10px;
+  }
+}

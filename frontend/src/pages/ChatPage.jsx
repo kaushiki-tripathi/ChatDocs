@@ -8,8 +8,6 @@ import API from "../lib/api";
 import { streamQuestion } from "../lib/streamApi";
 import "../styles/chat.css";
 
-
-
 const ChatPage = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("chat");
@@ -28,6 +26,63 @@ const ChatPage = () => {
     fetchDocuments();
     fetchConversations();
   }, []);
+
+  // Automatically check document indexing status every 5 seconds
+  
+useEffect(() => {
+  if (!currentDoc || currentDoc.status !== "processing") {
+    return;
+  }
+
+  const docId = currentDoc._id || currentDoc.id;
+
+  const interval = setInterval(async () => {
+    try {
+      const response = await API.get("/documents");
+
+      if (!response.data.success) return;
+
+      const updatedDocs = response.data.documents;
+      setDocuments(updatedDocs);
+
+      const updatedDoc = updatedDocs.find(
+        (doc) => (doc._id || doc.id) === docId
+      );
+
+      if (!updatedDoc) return;
+
+      // Show toast only when the document status changes.
+      if (
+        currentDoc.status === "processing" &&
+        updatedDoc.status === "ready"
+      ) {
+        toast.success(
+          "Your PDF is ready! You can start chatting now.",
+          { id: `document-ready-${docId}`, duration: 4000 }
+        );
+      }
+
+      if (
+        currentDoc.status === "processing" &&
+        updatedDoc.status === "failed"
+      ) {
+        toast.error(
+          "PDF indexing failed. Please try re-indexing.",
+          { id: `document-failed-${docId}`, duration: 4000 }
+        );
+      }
+
+      // Update state outside the notification logic.
+      setCurrentDoc(updatedDoc);
+
+    } catch (error) {
+      console.error("Failed to refresh document status:", error);
+    }
+  }, 5000);
+
+  return () => clearInterval(interval);
+}, [currentDoc?._id, currentDoc?.id, currentDoc?.status]);
+
 
   const fetchDocuments = async () => {
     try {
@@ -115,7 +170,7 @@ const ChatPage = () => {
         // Optimistically add to list so sidebar updates in real time
         setDocuments((prev) => {
           const exists = prev.some(
-            (d) => (d._id || d.id) === (normalizedDoc._id || normalizedDoc.id)
+            (d) => (d._id || d.id) === (normalizedDoc._id || normalizedDoc.id),
           );
           return exists ? prev : [normalizedDoc, ...prev];
         });
@@ -123,7 +178,7 @@ const ChatPage = () => {
         fetchDocuments();
 
         toast.success(
-          `${doc.originalName} uploaded · ${doc.pageCount} pages ready`,
+          `${doc.originalName} uploaded · Preparing ${doc.pageCount} pages for chat`,
           {
             id: uploadToast,
             duration: 3000,
@@ -160,125 +215,168 @@ const ChatPage = () => {
     const docId = currentDoc._id || currentDoc.id;
     let convId = currentConversation?._id;
 
-    // Create conversation if none exists
+    // STEP 1: Create conversation if one doesn't exist
     if (!convId) {
       try {
         const convResponse = await API.post("/chat/conversations", {
           documentId: docId,
         });
+
         if (convResponse.data.success) {
           convId = convResponse.data.conversation._id;
           setCurrentConversation(convResponse.data.conversation);
         }
       } catch (error) {
-        console.error("Failed to send message:", error);
+        console.error("Failed to create conversation:", error);
         toast.error("Failed to send message. Try again.");
         return;
       }
     }
 
-    // Add user message to UI
+    // STEP 2: Add user message optimistically
     const userMsg = {
       id: Date.now(),
-      role: 'user',
+      role: "user",
       content: question,
       timestamp: new Date(),
-    }
-    const messagesWithUser = [...messages, userMsg]
-    setMessages(messagesWithUser)
+    };
 
-    // Show typing indicator
-    setIsTyping(true)
+    setMessages((prev) => [...prev, userMsg]);
 
-    // Add empty AI message that will be filled by streaming
-    const aiMsgId = Date.now() + 1
-    let firstChunk = true; // track if AI message has been added yet
+    // STEP 3: Show typing indicator
+    setIsTyping(true);
 
-  const token = localStorage.getItem("token");
+    const aiMsgId = Date.now() + 1;
+    let firstChunk = true;
 
-  streamQuestion(
-    convId,
-    question,
-    token,
+    const token = localStorage.getItem("token");
 
-    // onChunk: first chunk replaces typing indicator with real message
-    (chunk) => {
-      if (firstChunk) {
-        firstChunk = false;
+    // STEP 4: Start streaming
+    streamQuestion(
+      convId,
+      question,
+      token,
+
+      // ON CHUNK: Receive AI response
+      (chunk) => {
+        if (firstChunk) {
+          firstChunk = false;
+          setIsTyping(false);
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: aiMsgId,
+              role: "assistant",
+              content: chunk,
+              sources: [],
+              timestamp: new Date(),
+              isStreaming: true,
+            },
+          ]);
+        } else {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === aiMsgId
+                ? { ...msg, content: msg.content + chunk }
+                : msg,
+            ),
+          );
+        }
+      },
+
+      // ON DONE: Finalize AI response
+      async ({ fullResponse, sources }) => {
         setIsTyping(false);
-        // Now add the AI message bubble for the first time
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: aiMsgId,
-            role: "assistant",
-            content: chunk,
-            sources: [],
-            timestamp: new Date(),
-            isStreaming: true,
-          },
-        ]);
-      } else {
-        // Append subsequent chunks
+
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === aiMsgId
-              ? { ...msg, content: msg.content + chunk }
-              : msg
-          )
+              ? {
+                  ...msg,
+                  content: fullResponse,
+                  sources: sources,
+                  isStreaming: false,
+                }
+              : msg,
+          ),
         );
-      }
-    },
 
-    // onDone: finalize message
-    async ({ fullResponse, sources }) => {
-  setIsTyping(false)
+        fetchConversations();
+      },
 
-  // Update UI with final response
-  setMessages(prev => prev.map(msg =>
-    msg.id === aiMsgId
-      ? {
-          ...msg,
-          content: fullResponse,
-          sources: sources,
-          isStreaming: false,
-        }
-      : msg
-  ))
+      // ON ERROR: Handle backend and streaming errors
+      (errorMessage, errorCode) => {
+        setIsTyping(false);
 
-  // Refresh conversations for history tab
-  // Backend already saved the message
-  fetchConversations()
-},
+        // Document is still being indexed
+        if (errorCode === "DOCUMENT_PROCESSING") {
+          setMessages((prev) => prev.filter((msg) => msg.id !== userMsg.id));
 
-    // onError: show error in the message bubble
-    (errorMessage) => {
-      setIsTyping(false);
-      // If first chunk never came, add the bubble now to show the error
-      setMessages((prev) => {
-        const alreadyExists = prev.find((m) => m.id === aiMsgId);
-        if (alreadyExists) {
-          return prev.map((msg) =>
-            msg.id === aiMsgId
-              ? { ...msg, content: errorMessage, isStreaming: false }
-              : msg
+          toast(
+            "Your PDF is still being prepared. Please wait until indexing is complete.",
+            {
+              icon: "⏳",
+              duration: 4000,
+              style: {
+                background: "#1a1a1a",
+                color: "#ffffff",
+                border: "1px solid rgba(167, 139, 250, 0.3)",
+                borderRadius: "12px",
+                fontSize: "14px",
+                fontFamily: "Outfit, sans-serif",
+              },
+            },
           );
+
+          return;
         }
-        return [
-          ...prev,
-          {
-            id: aiMsgId,
-            role: "assistant",
-            content: errorMessage,
-            sources: [],
-            timestamp: new Date(),
-            isStreaming: false,
-          },
-        ];
-      });
-    }
-  );
-};
+
+        // Document indexing failed
+        if (
+          errorCode === "DOCUMENT_INDEXING_FAILED" ||
+          errorCode === "DOCUMENT_NOT_READY"
+        ) {
+          setMessages((prev) => prev.filter((msg) => msg.id !== userMsg.id));
+
+          toast.error(errorMessage, {
+            duration: 4000,
+          });
+
+          return;
+        }
+
+        // Other errors: display inside assistant message
+        setMessages((prev) => {
+          const alreadyExists = prev.find((msg) => msg.id === aiMsgId);
+
+          if (alreadyExists) {
+            return prev.map((msg) =>
+              msg.id === aiMsgId
+                ? {
+                    ...msg,
+                    content: errorMessage,
+                    isStreaming: false,
+                  }
+                : msg,
+            );
+          }
+
+          return [
+            ...prev,
+            {
+              id: aiMsgId,
+              role: "assistant",
+              content: errorMessage,
+              sources: [],
+              timestamp: new Date(),
+              isStreaming: false,
+            },
+          ];
+        });
+      },
+    );
+  };
 
   const handleDocumentDelete = (docId) => {
     setDocuments((prev) => prev.filter((doc) => (doc._id || doc.id) !== docId));
@@ -393,7 +491,7 @@ const ChatPage = () => {
         <ChatInput
           onSend={handleSend}
           onUploadClick={() => setShowUpload(true)}
-          disabled={!currentDoc || isTyping}
+          disabled={!currentDoc || isTyping || currentDoc.status !== "ready"}
         />
       </main>
     </div>
