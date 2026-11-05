@@ -87,7 +87,11 @@ const HistoryView = ({ conversations, onSelectHistory, onDeleteConversation }) =
     );
   };
 
-  if (!conversations || conversations.length === 0) {
+  const validConversations = (conversations || []).filter(
+    (conv) => Boolean(conv.documentId),
+  );
+
+  if (validConversations.length === 0) {
     return (
       <div className="chat-center">
         <motion.div
@@ -117,7 +121,7 @@ const HistoryView = ({ conversations, onSelectHistory, onDeleteConversation }) =
           Conversation History
         </motion.h2>
 
-        {conversations.map((conv, index) => (
+        {validConversations.map((conv, index) => (
           <motion.div
             key={conv._id}
             initial={{ opacity: 0, y: 12 }}

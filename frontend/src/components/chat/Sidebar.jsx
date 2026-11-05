@@ -2,6 +2,7 @@ import { useEffect, useCallback } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
+import API from "../../lib/api";
 import { formatSize, timeAgo } from "../../lib/utils";
 
 const Sidebar = ({
@@ -179,7 +180,6 @@ const Sidebar = ({
                   toast.dismiss(t.id);
                   const deleteToast = toast.loading("Deleting document...");
                   try {
-                    const { default: API } = await import("../../lib/api");
                     const docId = doc._id || doc.id;
                     const response = await API.delete(`/documents/${docId}`);
                     if (response.data.success) {

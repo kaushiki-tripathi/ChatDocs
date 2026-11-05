@@ -126,25 +126,28 @@ useEffect(() => {
     }
   };
 
-  // When currentDoc changes, check for existing conversation
+  // When currentDoc changes or conversations load, match current conversation
   useEffect(() => {
-    if (currentDoc) {
-      const docId = currentDoc._id || currentDoc.id;
-      const existing = conversations.find(
-        (c) => (c.documentId?._id || c.documentId) === docId,
-      );
-      if (existing) {
-        setCurrentConversation(existing);
-        loadConversationMessages(existing._id);
-      } else {
-        setCurrentConversation(null);
-        setMessages([]);
-      }
-    } else {
+    if (!currentDoc) {
       setCurrentConversation(null);
       setMessages([]);
+      return;
     }
-  }, [currentDoc]);
+
+    const docId = currentDoc._id || currentDoc.id;
+    const existing = conversations.find(
+      (c) => (c.documentId?._id || c.documentId) === docId,
+    );
+
+    if (existing) {
+      if (currentConversation?._id !== existing._id) {
+        setCurrentConversation(existing);
+        loadConversationMessages(existing._id);
+      }
+    } else if (!currentConversation) {
+      setMessages([]);
+    }
+  }, [currentDoc, conversations]);
 
   const handleUpload = async (file) => {
     setShowUpload(false);
@@ -189,7 +192,7 @@ useEffect(() => {
       console.error("Upload failed:", error);
       const message =
         error.response?.data?.message || "Upload failed. Please try again.";
-      toast.error(message, { id: uploadToast });
+      toast.error(message, { id: uploadToast, duration: 4000 });
     } finally {
       setUploading(false);
     }
@@ -289,18 +292,32 @@ useEffect(() => {
       async ({ fullResponse, sources }) => {
         setIsTyping(false);
 
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === aiMsgId
-              ? {
-                  ...msg,
-                  content: fullResponse,
-                  sources: sources,
-                  isStreaming: false,
-                }
-              : msg,
-          ),
-        );
+        setMessages((prev) => {
+          const exists = prev.some((msg) => msg.id === aiMsgId);
+          if (exists) {
+            return prev.map((msg) =>
+              msg.id === aiMsgId
+                ? {
+                    ...msg,
+                    content: fullResponse || msg.content,
+                    sources: sources || [],
+                    isStreaming: false,
+                  }
+                : msg,
+            );
+          }
+          return [
+            ...prev,
+            {
+              id: aiMsgId,
+              role: "assistant",
+              content: fullResponse || "",
+              sources: sources || [],
+              timestamp: new Date(),
+              isStreaming: false,
+            },
+          ];
+        });
 
         fetchConversations();
       },
@@ -380,6 +397,11 @@ useEffect(() => {
 
   const handleDocumentDelete = (docId) => {
     setDocuments((prev) => prev.filter((doc) => (doc._id || doc.id) !== docId));
+    setConversations((prev) =>
+      prev.filter(
+        (conv) => (conv.documentId?._id || conv.documentId) !== docId,
+      ),
+    );
 
     if (currentDoc && (currentDoc._id === docId || currentDoc.id === docId)) {
       setCurrentDoc(null);
@@ -406,6 +428,8 @@ useEffect(() => {
       setCurrentConversation(conversation);
       loadConversationMessages(conversation._id);
       setActiveTab("chat");
+    } else {
+      toast.error("This document is no longer available.");
     }
   };
 
