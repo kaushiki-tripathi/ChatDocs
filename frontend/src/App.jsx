@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import {Toaster} from 'react-hot-toast'
+import AppToaster from './components/common/AppToaster'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import LoginPage from './pages/LoginPage'
@@ -10,9 +10,10 @@ function App() {
   return (
     <Router>
       <AuthProvider>
-        <Toaster
+        <AppToaster
           position="top-right"
           toastOptions={{
+            duration: 3500,
             success: {
               duration: 3000,
               style: {
