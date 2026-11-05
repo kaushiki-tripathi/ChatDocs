@@ -53,6 +53,15 @@ app.get('/', (req, res) => {
   res.json({ message: 'ChatDocs Backend is Running!' })
 })
 
+// Centralized error-handling middleware (handles Multer errors, validation errors, etc.)
+app.use((err, req, res, next) => {
+  console.error('Unhandled server error:', err.message)
+  res.status(err.status || 400).json({
+    success: false,
+    message: err.message || 'An unexpected error occurred',
+  })
+})
+
 const PORT = process.env.PORT || 5000
 
 app.listen(PORT, () => {

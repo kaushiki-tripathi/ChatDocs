@@ -22,7 +22,7 @@ router.get('/google/callback',
     )
 
     res.redirect(
-      `${process.env.CLIENT_URL}/auth/success?token=${token}&name=${req.user.name}&email=${req.user.email}&picture=${req.user.profilePicture}`
+      `${process.env.CLIENT_URL}/auth/success?token=${token}&name=${encodeURIComponent(req.user.name || '')}&email=${encodeURIComponent(req.user.email || '')}&picture=${encodeURIComponent(req.user.profilePicture || '')}`
     )
   }
 )

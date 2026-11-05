@@ -17,9 +17,9 @@ async (accessToken, refreshToken, profile, done) => {
 
     user = await User.create({
       googleId: profile.id,
-      name: profile.displayName,
-      email: profile.emails[0].value,
-      profilePicture: profile.photos[0].value
+      name: profile.displayName || 'User',
+      email: profile.emails?.[0]?.value || '',
+      profilePicture: profile.photos?.[0]?.value || ''
     })
 
     return done(null, user)
