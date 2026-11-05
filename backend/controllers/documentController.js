@@ -1,4 +1,6 @@
 const Document = require("../models/Document");
+const Conversation = require("../models/Conversation");
+const Message = require("../models/Message");
 const parsePDF = require("pdf-parse");
 const fs = require("fs");
 const {
@@ -228,6 +230,15 @@ const deleteDocument = async (req, res) => {
     const filePath = `uploads/${document.fileName}`;
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
+    }
+
+    // Cascade delete: delete all conversations and messages associated with this document
+    const conversations = await Conversation.find({ documentId: req.params.id });
+    const conversationIds = conversations.map((c) => c._id);
+
+    if (conversationIds.length > 0) {
+      await Message.deleteMany({ conversationId: { $in: conversationIds } });
+      await Conversation.deleteMany({ documentId: req.params.id });
     }
 
     await Document.findByIdAndDelete(req.params.id);
