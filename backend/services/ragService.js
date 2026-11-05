@@ -1,41 +1,39 @@
-
 /**
  * RAG SERVICE
  *
- * Page-aware document indexing and retrieval.
- * - Indexes individual PDF pages.
- * - Retrieves exact pages/ranges directly.
- * - Answers page-count questions from MongoDB.
- * - Uses Pinecone for normal semantic questions.
- * - Preserves Gemini retry and batch settings.
+ * Responsibility:
+ * Orchestrates the entire RAG pipeline.
+ * Connects all other services together.
+ * Handles all error cases.
+ *
+ * Two main functions:
+ * 1. indexDocument() - processes PDF for searching
+ * 2. queryDocument() - answers user questions
+ *
+ * Error cases handled:
+ * - Empty PDF (no text extracted)
+ * - No relevant chunks found
+ * - Irrelevant question
+ * - API failures
  */
 
-const { chunkDocument } = require("./chunkingService");
-const { embedText, embedBatch } = require("./embeddingService");
+const { chunkDocument } = require('./chunkingService')
+const { embedText, embedBatch } = require('./embeddingService')
 
 const {
   storeEmbeddings,
   searchSimilarChunks,
-  deleteDocumentVectors,
-} = require("./vectorStoreService");
+  deleteDocumentVectors
+} = require('./vectorStoreService')
 
 const {
   cleanQuery,
   formatChatHistory,
   formatChunksAsContext,
-  isQuestionRelevant,
-} = require("./queryService");
+  isQuestionRelevant
+} = require('./queryService')
 
-const { streamAnswer } = require("./openRouterService");
-const Document = require("../models/Document");
-
-// Gemini configuration
-const BATCH_SIZE = 5;
-const BATCH_DELAY = 5000;
-const MAX_EMBEDDING_RETRIES = 5;
-
-const sleep = (ms) =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const { streamAnswer } = require('./groqService')
 
 /**
  * GEMINI RETRY HELPERS
@@ -150,28 +148,19 @@ const detectPageRequest = (question, totalPages) => {
   }
 
   // Pages X to Y / pages from X to Y / X-Y
+    // Page ranges (must explicitly mention page/pages):
+  // pages 1 to 5
+  // pages from 1 to 5
+  // page 1 to page 5
+  // from page 1 to page 5
+  // page 1-5, pages 1-5
   const rangeMatch = q.match(
-    /\bpages?\s+(?:from\s+)?(\d+)\s*(?:to|through|thru|-|–|—)\s*(?:page\s*)?(\d+)\b/
+    /\b(?:pages?\s+(?:from\s+)?(\d+)\s*(?:to|through|thru|-|–|—)\s*(?:page\s*)?(\d+)|(?:from\s+)?page\s+(\d+)\s*(?:to|through|thru|-|–|—)\s*(?:page\s*)?(\d+))\b/i
   );
 
   if (rangeMatch) {
-    const first = Number(rangeMatch[1]);
-    const second = Number(rangeMatch[2]);
-
-    return {
-      startPage: Math.min(first, second),
-      endPage: Math.max(first, second),
-    };
-  }
-
-  // From page X to page Y
-  const fromToMatch = q.match(
-    /\bfrom\s+page\s+(\d+)\s+to\s+page\s+(\d+)\b/
-  );
-
-  if (fromToMatch) {
-    const first = Number(fromToMatch[1]);
-    const second = Number(fromToMatch[2]);
+    const first = Number(rangeMatch[1] || rangeMatch[3]);
+    const second = Number(rangeMatch[2] || rangeMatch[4]);
 
     return {
       startPage: Math.min(first, second),
@@ -237,161 +226,114 @@ const getChunksForPageRange = (
 /**
  * PHASE 1: INDEX DOCUMENT
  *
- * indexDocument(documentId, pages)
+ * Called after PDF is uploaded and text extracted.
+ * Prepares document for semantic search.
  */
-
-const indexDocument = async (documentId, pages) => {
-  console.log("\n🚀 Starting page-aware document indexing...");
-  console.log(`   Document ID: ${documentId}`);
-  console.log(`   Total extracted pages: ${pages?.length || 0}`);
+const indexDocument = async (documentId, extractedText, totalPages) => {
+  console.log('\n🚀 Starting document indexing...')
+  console.log(`   Document ID: ${documentId}`)
+  console.log(`   Total pages: ${totalPages}`)
+  console.log(`   Text length: ${extractedText?.length || 0} characters`)
 
   try {
-    if (!Array.isArray(pages) || pages.length === 0) {
-      throw new Error("EMPTY_DOCUMENT");
+
+    // STEP 1: Check for empty document
+    if (!extractedText || extractedText.trim().length < 50) {
+      throw new Error('EMPTY_DOCUMENT')
     }
 
-    const totalCharacters = pages.reduce(
-      (total, page) =>
-        total + (page.text?.length || 0),
-      0
-    );
-
-    console.log(
-      `   Total text length: ${totalCharacters} characters`
-    );
-
-    if (totalCharacters < 50) {
-      throw new Error("EMPTY_DOCUMENT");
-    }
-
-    // STEP 1: Chunk individual pages
-    console.log("\n📄 Step 1: Chunking individual pages...");
+    // STEP 2: Split into chunks
+    console.log('\n📄 Step 1: Chunking document...')
 
     const chunks = chunkDocument(
-      pages,
-      documentId.toString()
-    );
+      extractedText,
+      documentId,
+      totalPages
+    )
 
-    if (!chunks || chunks.length === 0) {
-      throw new Error("NO_CHUNKS_CREATED");
+    if (chunks.length === 0) {
+      throw new Error('NO_CHUNKS_CREATED')
     }
 
-    console.log(`   Created ${chunks.length} chunks.`);
+    // STEP 3 + 4: Embed and store in batches
+    const BATCH_SIZE = 6
 
-    // STEP 2: Embed and store in batches
     console.log(
-      `\n🔢 Step 2: Embedding in batches of ${BATCH_SIZE}...`
-    );
+      `\n🔢 Step 2: Embedding + storing in batches of ${BATCH_SIZE}...`
+    )
 
-    let totalStored = 0;
+    let totalStored = 0
 
     for (
       let batchStart = 0;
       batchStart < chunks.length;
       batchStart += BATCH_SIZE
     ) {
+
       const batchEnd = Math.min(
         batchStart + BATCH_SIZE,
         chunks.length
-      );
+      )
 
       const batchChunks = chunks.slice(
         batchStart,
         batchEnd
-      );
+      )
 
       const batchTexts = batchChunks.map(
-        (chunk) => chunk.text
-      );
-
-      const batchNumber =
-        Math.floor(batchStart / BATCH_SIZE) + 1;
+        chunk => chunk.text
+      )
 
       console.log(
-        `\n   Batch ${batchNumber}: chunks ${batchStart + 1}-${batchEnd}`
-      );
+        `   Batch ${Math.floor(batchStart / BATCH_SIZE) + 1}: chunks ${batchStart + 1}-${batchEnd}`
+      )
 
-      // STEP 3: Generate embeddings with retry
-      const batchEmbeddings = await embedBatchWithRetry(
-        batchTexts
-      );
+      // Create embeddings
+      const batchEmbeddings = await embedBatch(batchTexts)
 
-      // STEP 4: Store embeddings in Pinecone
+      // Store in Pinecone
       await storeEmbeddings(
         documentId,
         batchChunks,
         batchEmbeddings
-      );
+      )
 
-      totalStored += batchChunks.length;
+      totalStored += batchChunks.length
 
       console.log(
         `   ✅ Stored ${totalStored}/${chunks.length} chunks`
-      );
+      )
 
-      // Preserve 15-second delay
+      // Strict 10-second delay between batches to stay under 100 requests/minute limit
       if (batchEnd < chunks.length) {
-        console.log(
-          `   ⏳ Waiting ${BATCH_DELAY / 1000} seconds...`
-        );
-
-        await sleep(BATCH_DELAY);
+        await new Promise(resolve => setTimeout(resolve, 5000))
       }
     }
 
-    console.log("\n✅ Page-aware indexing complete!");
+    console.log('\n✅ Document indexing complete!')
+    console.log(`   ${totalStored} chunks indexed and ready`)
 
     return {
       success: true,
       chunksCount: totalStored,
-    };
+    }
+
   } catch (error) {
+
     console.error(
-      "\n❌ Document indexing failed:",
+      '\n❌ Document indexing failed:',
       error.message
-    );
+    )
 
-    throw error;
+    throw error
   }
-};
+}
 
 /**
- * SSE ERROR RESPONSE
- */
-
-const sendErrorStream = (res, message) => {
-  if (res.writableEnded) return;
-
-  if (!res.headersSent) {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
-  }
-
-  res.write(
-    `data: ${JSON.stringify({
-      text: message,
-    })}\n\n`
-  );
-
-  res.write(
-    `data: ${JSON.stringify({
-      done: true,
-      sources: [],
-      fullResponse: message,
-      isError: true,
-    })}\n\n`
-  );
-
-  res.end();
-};
-
-/**
- * DIRECT ANSWER RESPONSE
+ * PHASE 2: Answer a user question.
  *
- * Used for factual metadata such as total page count.
- * Does not call OpenRouter.
+ * Called when user sends a message in chat.
+ * Finds relevant content and streams answer.
  */
 
 const sendDirectAnswer = (res, answer) => {
@@ -419,6 +361,11 @@ const sendDirectAnswer = (res, answer) => {
   );
 
   res.end();
+
+  return {
+    fullResponse: answer,
+    sourcePages: [],
+  };
 };
 
 /**
@@ -430,7 +377,10 @@ const isPageCountQuestion = (question) => {
     /\bhow many pages?\b/i.test(question) ||
     /\b(total\s+)?number of pages?\b/i.test(question) ||
     /\bpage count\b/i.test(question) ||
-    /\btotal pages?\b/i.test(question)
+    /\btotal pages?\b/i.test(question) ||
+    /\bhow long is (this |the )?document\b/i.test(question) ||
+    /\bpages? (does|do|is|are) (it|this|the document) have\b/i.test(question) ||
+    /\bhow many pages (is|are|does|in)\b/i.test(question)
   );
 };
 
@@ -443,234 +393,235 @@ const queryDocument = async (
   documentId,
   documentName,
   question,
-  chatHistory = []
+  chatHistory = [],
+  pageCount = null
 ) => {
-  console.log("\n🔍 Processing question...");
-  console.log(`   Question: "${question}"`);
-  console.log(`   Document: ${documentName}`);
+
+  console.log('\n🔍 Processing question...')
+  console.log(`   Question: "${question}"`)
+  console.log(`   Document: ${documentName}`)
 
   try {
+
     // STEP 1: Clean question
-    let cleanedQuestion;
+    let cleanedQuestion
 
     try {
-      cleanedQuestion = cleanQuery(question);
+
+      cleanedQuestion = cleanQuery(question)
+
+      console.log(`   Cleaned: "${cleanedQuestion}"`)
+
     } catch (error) {
-      if (error.message === "EMPTY_QUESTION") {
-        return sendErrorStream(res, "Please type a question.");
-      }
 
-      if (error.message === "QUESTION_TOO_SHORT") {
+      if (error.message === 'EMPTY_QUESTION') {
         return sendErrorStream(
           res,
-          "Question is too short. Please be more specific."
-        );
+          'Please type a question.'
+        )
       }
 
-      if (error.message === "QUESTION_TOO_LONG") {
+      if (error.message === 'QUESTION_TOO_SHORT') {
         return sendErrorStream(
           res,
-          "Question is too long. Please shorten it."
-        );
+          'Question is too short. Please be more specific.'
+        )
       }
 
-      throw error;
+      if (error.message === 'QUESTION_TOO_LONG') {
+        return sendErrorStream(
+          res,
+          'Question is too long. Please shorten it.'
+        )
+      }
+
+      throw error
     }
 
-    // STEP 2: Load document and verify status
-    const doc = await Document.findById(documentId)
-      .select("pages pageCount extractedText status");
-
-    if (!doc) {
-      return sendErrorStream(
+    // STEP 2: Check if question is about page count — answer directly from DB
+    if (isPageCountQuestion(cleanedQuestion) && pageCount != null) {
+      console.log(`   ✅ Page count question detected. Answering directly: ${pageCount} pages`)
+      return sendDirectAnswer(
         res,
-        "Document not found. Please upload it again."
-      );
+        `This document has **${pageCount} pages** in total.`
+      )
     }
 
-    if (doc.status !== "ready") {
-      return sendErrorStream(
-        res,
-        "Your document is not ready yet. Please wait for indexing to finish."
-      );
-    }
-
-    // STEP 3: Answer page-count questions directly
-    if (isPageCountQuestion(cleanedQuestion)) {
-      const totalPages = Number(doc.pageCount);
-
-      if (!Number.isFinite(totalPages) || totalPages < 1) {
-        return sendErrorStream(
-          res,
-          "I couldn't determine the total page count of this document."
-        );
-      }
-
-      const answer =
-        `Your document contains **${totalPages} pages**.`;
-
-      console.log(
-        `📄 Direct page-count answer: ${totalPages}`
-      );
-
-      return sendDirectAnswer(res, answer);
-    }
-
-    // STEP 4: Check relevance for other questions
+    // STEP 3: Check relevance
     if (!isQuestionRelevant(cleanedQuestion)) {
+
       return sendErrorStream(
         res,
-        "This question does not appear to be related to your document. I can only answer questions about the uploaded PDF."
-      );
+        'This question does not appear to be related to your document. ' +
+        'I can only answer questions about the uploaded PDF.'
+      )
     }
 
-    // STEP 5: Detect explicit page requests
-    const pageRequest = detectPageRequest(
-      cleanedQuestion,
-      doc.pageCount
-    );
-
-    let relevantChunks = [];
-    let retrievalType = "semantic";
+    // STEP 4: Detect explicit page request (e.g. "last page", "page 5", "pages 3-7")
+    const pageRequest = detectPageRequest(cleanedQuestion, pageCount)
 
     if (pageRequest) {
-      retrievalType = "page";
+      console.log(`\n📄 Page request detected: pages ${pageRequest.startPage}–${pageRequest.endPage}`)
 
-      const { startPage, endPage } = pageRequest;
+      // Load pages array from MongoDB to get text for the requested page(s)
+      const Document = require('../models/Document')
+      const doc = await Document.findById(documentId).select('pages pageCount')
 
-      console.log(
-        `\n📖 Direct page retrieval: ${startPage}-${endPage}`
-      );
-
-      if (
-        startPage < 1 ||
-        endPage > doc.pageCount ||
-        startPage > endPage
-      ) {
-        return sendErrorStream(
-          res,
-          `Please provide a valid page range between 1 and ${doc.pageCount}.`
-        );
-      }
-
-      relevantChunks = getChunksForPageRange(
-        doc.pages || [],
-        documentId,
-        startPage,
-        endPage
-      );
-
-      if (relevantChunks.length === 0) {
-        return sendErrorStream(
-          res,
-          `I couldn't extract readable text from pages ${startPage}-${endPage}. This may be an image-only or scanned section of the PDF.`
-        );
-      }
-    } else {
-      // STEP 6: Normal topic-based semantic search
-      console.log("\n🔢 Embedding question...");
-
-      const questionEmbedding = await embedText(
-        cleanedQuestion,
-        "RETRIEVAL_QUERY"
-      );
-
-      console.log("\n🔍 Searching Pinecone...");
-
-      try {
-        relevantChunks = await searchSimilarChunks(
+      if (doc && doc.pages && doc.pages.length > 0) {
+        const pageChunks = getChunksForPageRange(
+          doc.pages,
           documentId,
-          questionEmbedding
-        );
-      } catch (searchError) {
-        if (
-          searchError.message !== "DOCUMENT_NOT_INDEXED"
-        ) {
-          throw searchError;
+          pageRequest.startPage,
+          pageRequest.endPage
+        )
+
+        if (pageChunks.length > 0) {
+          const context = formatChunksAsContext(pageChunks)
+          const formattedHistory = formatChatHistory(chatHistory)
+          const sourcePages = [
+            ...new Set(pageChunks.map(c => `Page ${c.pageNumber}`))
+          ]
+
+          console.log(`   Source pages: ${sourcePages.join(', ')}`)
+
+          const fullResponse = await streamAnswer(
+            res,
+            documentName,
+            context,
+            cleanedQuestion,
+            formattedHistory,
+            sourcePages,
+            pageCount
+          )
+
+          return { fullResponse, sourcePages }
         }
+      }
 
-        console.log(
-          "\n🔄 Document vectors missing. Re-indexing..."
-        );
+      // Fall through to semantic search if page data unavailable
+      console.log('   ⚠️ Page data unavailable, falling back to semantic search')
+    }
 
-        if (!doc.pages || doc.pages.length === 0) {
+    // STEP 5: Convert question to embedding
+    console.log('\n🔢 Converting question to embedding...')
+
+    const questionEmbedding = await embedText(
+      cleanedQuestion,
+      'RETRIEVAL_QUERY'
+    )
+
+    // STEP 4: Search Pinecone
+    console.log('\n🔍 Searching for relevant chunks...')
+
+    let relevantChunks
+
+    try {
+
+      relevantChunks = await searchSimilarChunks(
+        documentId,
+        questionEmbedding
+      )
+
+    } catch (searchError) {
+
+      if (searchError.message === 'DOCUMENT_NOT_INDEXED') {
+
+        console.log('\n🔄 Document not indexed. Auto-reindexing...')
+
+        const Document = require('../models/Document')
+
+        const doc = await Document.findById(documentId)
+
+        if (
+          !doc ||
+          !doc.extractedText ||
+          doc.extractedText.trim().length < 50
+        ) {
+
           return sendErrorStream(
             res,
-            "This document has no stored page text. Please delete and re-upload it."
-          );
+            'This document could not be indexed. Please delete and re-upload it.'
+          )
         }
 
-        // Show progress through SSE
+        // Stream progress message
         if (!res.headersSent) {
-          res.setHeader("Content-Type", "text/event-stream");
-          res.setHeader("Cache-Control", "no-cache");
-          res.setHeader("Connection", "keep-alive");
-          res.flushHeaders();
+
+          res.setHeader('Content-Type', 'text/event-stream')
+          res.setHeader('Cache-Control', 'no-cache')
+          res.setHeader('Connection', 'keep-alive')
+
+          res.flushHeaders()
         }
 
         res.write(
           `data: ${JSON.stringify({
-            text: "⏳ Re-indexing your document. Please wait...\n\n",
+            text: '⏳ Indexing your document for the first time. This may take a moment...\n\n'
           })}\n\n`
-        );
+        )
 
+        // Re-index document
         await indexDocument(
           doc._id.toString(),
-          doc.pages
-        );
+          doc.extractedText,
+          doc.pageCount
+        )
 
-        console.log(
-          "✅ Re-index complete. Retrying search..."
-        );
+        console.log('✅ Auto-reindex complete. Retrying search...')
 
         relevantChunks = await searchSimilarChunks(
           documentId,
           questionEmbedding
-        );
+        )
+
+      } else {
+
+        throw searchError
       }
     }
 
-    // STEP 7: Check retrieval result
+    // STEP 5: No relevant chunks found
     if (
       !relevantChunks ||
       relevantChunks.length === 0
     ) {
+
       return sendErrorStream(
         res,
-        "I could not find relevant information in your document. Try rephrasing your question."
-      );
+        'I could not find relevant information about this in your document. ' +
+        'Try rephrasing your question or ask about a different topic covered in the PDF.'
+      )
     }
 
-    // STEP 8: Format context
-    console.log("\n📝 Formatting context...");
+    // STEP 6: Format context and history
+    console.log('\n📝 Formatting context...')
 
-    const context = formatChunksAsContext(
-      relevantChunks
-    );
+    const context = formatChunksAsContext(relevantChunks)
 
-    const formattedHistory = formatChatHistory(
-      chatHistory
-    );
+    const formattedHistory = formatChatHistory(chatHistory)
 
     const sourcePages = [
       ...new Set(
         relevantChunks.map(
-          (chunk) => `Page ${chunk.pageNumber}`
+          chunk => `Page ${chunk.pageNumber}`
         )
-      ),
-    ].sort((a, b) => {
-      return (
-        Number(a.replace("Page ", "")) -
-        Number(b.replace("Page ", ""))
-      );
-    });
+      )
+    ]
 
-    console.log(`   Retrieval type: ${retrievalType}`);
-    console.log(`   Context length: ${context.length}`);
-    console.log(`   Source pages: ${sourcePages.join(", ")}`);
+    console.log(
+      `   Context length: ${context.length} characters`
+    )
 
-    // STEP 9: Stream answer
-    console.log("\n🤖 Streaming answer from OpenRouter...");
+    console.log(
+      `   Source pages: ${sourcePages.join(', ')}`
+    )
+
+    console.log(
+      `   History messages: ${formattedHistory.length}`
+    )
+
+    // STEP 7: Stream answer
+    console.log('\n🤖 Streaming answer from Groq...')
 
     const fullResponse = await streamAnswer(
       res,
@@ -678,35 +629,75 @@ const queryDocument = async (
       context,
       cleanedQuestion,
       formattedHistory,
-      sourcePages
-    );
+      sourcePages,
+      pageCount
+    )
 
     return {
       fullResponse,
-      sourcePages,
-    };
-  } catch (error) {
-    console.error(
-      "\n❌ Query failed:",
-      error.message
-    );
-
-    if (error.message === "DOCUMENT_NOT_INDEXED") {
-      return sendErrorStream(
-        res,
-        "This document has not been indexed yet. Please try re-indexing it."
-      );
+      sourcePages
     }
 
-    return sendErrorStream(
-      res,
-      "Something went wrong. Please try again."
-    );
+  } catch (error) {
+
+    console.error(
+      '\n❌ Query failed:',
+      error.message
+    )
+
+    if (error.message === 'DOCUMENT_NOT_INDEXED') {
+
+      sendErrorStream(
+        res,
+        'This document hasn\'t been indexed yet. ' +
+        'Please delete it and re-upload, or use the re-index option.'
+      )
+
+    } else {
+
+      sendErrorStream(
+        res,
+        'Something went wrong. Please try again.'
+      )
+    }
   }
-};
+}
+
+/**
+ * Sends error message as stream.
+ */
+const sendErrorStream = (res, message) => {
+  if (res.writableEnded) return;
+
+  if (!res.headersSent) {
+
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+
+    res.flushHeaders()
+  }
+
+  res.write(
+    `data: ${JSON.stringify({
+      text: message
+    })}\n\n`
+  )
+
+  res.write(
+    `data: ${JSON.stringify({
+      done: true,
+      sources: [],
+      fullResponse: message,
+      isError: true
+    })}\n\n`
+  )
+
+  res.end()
+}
 
 module.exports = {
   indexDocument,
   queryDocument,
-  deleteDocumentVectors,
-};
+  deleteDocumentVectors
+}

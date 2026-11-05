@@ -41,15 +41,37 @@ const createConversation = async (req, res) => {
  */
 const getConversations = async (req, res) => {
   try {
-    const conversations = await Conversation.find({
+    const rawConversations = await Conversation.find({
       userId: req.user._id,
     })
       .populate("documentId", "originalName fileName")
       .sort({ updatedAt: -1 });
 
+    // Filter out conversations whose document was deleted
+    const validConversations = [];
+    const orphanedIds = [];
+
+    for (const conv of rawConversations) {
+      if (!conv.documentId) {
+        orphanedIds.push(conv._id);
+      } else {
+        validConversations.push(conv);
+      }
+    }
+
+    // Clean up any legacy orphaned conversations and messages from database
+    if (orphanedIds.length > 0) {
+      Message.deleteMany({ conversationId: { $in: orphanedIds } }).catch((err) =>
+        console.error("Failed to cleanup orphaned messages:", err.message),
+      );
+      Conversation.deleteMany({ _id: { $in: orphanedIds } }).catch((err) =>
+        console.error("Failed to cleanup orphaned conversations:", err.message),
+      );
+    }
+
     res.status(200).json({
       success: true,
-      conversations,
+      conversations: validConversations,
     });
   } catch (error) {
     res.status(500).json({
@@ -291,6 +313,7 @@ const askQuestion = async (req, res) => {
       documentName,
       question,
       chatHistory,
+      document.pageCount ?? null,
     );
 
     // STEP 7: Save AI response to MongoDB after streaming

@@ -69,10 +69,13 @@ Politely explain that you can only answer questions about the uploaded document.
 Your goal is to make the user understand their document, not simply repeat extracted text.`;
 };
 
-const buildUserMessage = (context, question) => {
+const buildUserMessage = (context, question, pageCount) => {
+  const pageNote = pageCount != null
+    ? `\nIMPORTANT: This document has exactly ${pageCount} pages in total. Use this fact when answering questions about the document length.\n`
+    : '';
   return `DOCUMENT CONTEXT:
 ${context}
-
+${pageNote}
 USER QUESTION:
 ${question}
 
@@ -91,7 +94,8 @@ const streamAnswer = async (
   context,
   question,
   chatHistory,
-  sourcePages
+  sourcePages,
+  pageCount = null
 ) => {
   try {
     // Validate API key
@@ -102,7 +106,7 @@ const streamAnswer = async (
     const messages = [
       { role: 'system', content: buildSystemPrompt(documentName) },
       ...chatHistory,
-      { role: 'user', content: buildUserMessage(context, question) }
+      { role: 'user', content: buildUserMessage(context, question, pageCount) }
     ];
 
     // Setup SSE headers
